@@ -13,6 +13,7 @@ import { GenerationPanel } from "@/components/generate/generation-panel";
 import { useFileTreeStore } from "@/stores/file-tree-store";
 import { useAiSettingsStore } from "@/stores/ai-settings-store";
 import { useGenerationStore } from "@/stores/generation-store";
+import { useLayoutEditorStore } from "@/stores/layout-editor-store";
 import { processUploadedFiles, collectAllPaths } from "@/lib/file-processor";
 import type { OutputType } from "@/types";
 import type { GenerateRequestBody, GenerateResponseBody } from "@/app/api/generate/route";
@@ -94,6 +95,7 @@ export default function GeneratePage() {
       settings,
       useDictionary: options.useDictionary,
       outputFormats: options.outputFormats,
+      layoutSections: useLayoutEditorStore.getState().sections,
     };
 
     fetch("/api/generate", {

@@ -13,11 +13,18 @@ import { HtmlPreview } from "@/components/result/html-preview";
 import { MarkdownView } from "@/components/result/markdown-view";
 import { FileResultSidebar } from "@/components/result/file-result-sidebar";
 import { DownloadBar } from "@/components/result/download-bar";
+import { useGenerationStore } from "@/stores/generation-store";
 import { DUMMY_RESULTS } from "@/components/result/dummy-data";
 
 export default function ResultPage() {
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const results = DUMMY_RESULTS;
+  const generationResult = useGenerationStore((s) => s.result);
+
+  // 실제 생성 결과가 있으면 사용, 없으면 더미 데이터
+  const results = generationResult?.results && generationResult.results.length > 0
+    ? generationResult.results
+    : DUMMY_RESULTS;
+  const isRealData = Boolean(generationResult?.results && generationResult.results.length > 0);
   const current = results[selectedIndex];
 
   const totalTokens = results.reduce((sum, r) => sum + r.tokenUsage.total_tokens, 0);
@@ -68,7 +75,7 @@ export default function ResultPage() {
           <div className="flex items-center gap-2 mb-4">
             <FileCode2 className="h-4 w-4 text-blue-500" aria-hidden="true" />
             <span className="text-sm font-medium">{current.fileName}</span>
-            <Badge variant="outline" className="text-xs">
+            <Badge variant="outline" className="text-xs" suppressHydrationWarning>
               {new Date(current.generatedAt).toLocaleString("ko-KR")} 생성
             </Badge>
           </div>
@@ -116,10 +123,12 @@ export default function ResultPage() {
       </div>
 
       <Separator className="my-8" />
-      <p className="text-xs text-muted-foreground text-center flex items-center justify-center gap-1.5">
-        <Info className="h-3.5 w-3.5" aria-hidden="true" />
-        현재 더미 데이터를 표시하고 있습니다. 매뉴얼 생성 후 실제 결과가 표시됩니다.
-      </p>
+      {!isRealData && (
+        <p className="text-xs text-muted-foreground text-center flex items-center justify-center gap-1.5">
+          <Info className="h-3.5 w-3.5" aria-hidden="true" />
+          현재 더미 데이터를 표시하고 있습니다. 매뉴얼 생성 후 실제 결과가 표시됩니다.
+        </p>
+      )}
     </Container>
   );
 }

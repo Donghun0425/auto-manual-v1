@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateManualForFile } from "@/lib/ai/generate";
+import { renderManual } from "@/lib/output";
 import { insertGenerationLog } from "@/lib/supabase/queries/generation-log";
-import type { AiSettings, ManualResult, GenerationError, OutputType } from "@/types";
+import type { AiSettings, LayoutSection, ManualResult, GenerationError, OutputType } from "@/types";
 
 export interface GenerateRequestBody {
   files: { path: string; content: string }[];
   settings: AiSettings;
   useDictionary: boolean;
   outputFormats: OutputType[];
+  layoutSections?: LayoutSection[];
 }
 
 export interface GenerateResponseBody {
@@ -31,7 +33,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { files, settings, useDictionary, outputFormats } = body;
+  const { files, settings, useDictionary, outputFormats, layoutSections } = body;
 
   if (!files || files.length === 0) {
     return NextResponse.json({ error: "파일이 선택되지 않았습니다." }, { status: 400 });
@@ -53,6 +55,14 @@ export async function POST(request: NextRequest) {
         settings,
         useDictionary,
       });
+
+      // HTML/MD 렌더링
+      const rendered = renderManual(result.parseResult, {
+        sections: layoutSections,
+        formats: outputFormats,
+      });
+      if (rendered.htmlContent) result.htmlContent = rendered.htmlContent;
+      if (rendered.markdownContent) result.markdownContent = rendered.markdownContent;
 
       totalTokens += result.tokenUsage.total_tokens;
       results.push(result);
