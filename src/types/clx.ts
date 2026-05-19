@@ -116,6 +116,10 @@ export interface ClxParseResult {
     titleBars: CrudInfo[];
     extraButtons: ExtButtonInfo[];
   };
+  /** AI 생성 사용방법 텍스트 ({B}기능명{/B} + Step 형식) */
+  aiUsageText?: string;
+  /** AI 생성 참고사항 설명 (그룹라벨 → 친화적 설명 배열) */
+  aiNotesDescriptions?: Map<string, string[]>;
   notes: {
     requiredFields: RequiredFieldInfo[];
     validations: ValidationInfo[];
