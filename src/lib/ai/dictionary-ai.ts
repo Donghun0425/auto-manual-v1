@@ -58,14 +58,18 @@ export async function getDescriptionWithDictionary(
 }
 
 /**
- * 프롬프트 카테고리를 DictionaryCategory로 매핑
+ * 카테고리 문자열을 DictionaryCategory로 매핑
+ * 파일명 기반 카테고리(공통/학사/행정/미정)를 그대로 전달받거나,
+ * 레거시 키(grid/condition 등)인 경우 공통으로 폴백
  */
 function mapToCategory(cat: string): "공통" | "학사" | "행정" | "연구" | "부속" | "기타" {
-  const map: Record<string, "공통" | "학사" | "행정" | "연구" | "부속" | "기타"> = {
-    grid: "공통",
-    condition: "공통",
-    button: "공통",
-    overview: "공통",
+  const direct: Record<string, "공통" | "학사" | "행정" | "연구" | "부속" | "기타"> = {
+    "공통": "공통",
+    "학사": "학사",
+    "행정": "행정",
+    "연구": "연구",
+    "부속": "부속",
+    "미정": "기타",
   };
-  return map[cat] ?? "공통";
+  return direct[cat] ?? "공통";
 }
