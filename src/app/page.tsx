@@ -22,6 +22,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Container } from "@/components/layout/container";
+import { listRecentGenerationLogs } from "@/lib/supabase/queries/generation-log";
 
 const features = [
   {
@@ -65,33 +66,6 @@ const features = [
   },
 ];
 
-const recentHistory = [
-  {
-    id: "1",
-    fileName: "SAM_학생등록관리.clx.js",
-    outputType: "HTML + MD",
-    status: "completed",
-    tokenUsage: 1_240,
-    createdAt: "2026-05-19 14:32",
-  },
-  {
-    id: "2",
-    fileName: "FIN_수강료납부현황.clx.js",
-    outputType: "HTML",
-    status: "completed",
-    tokenUsage: 980,
-    createdAt: "2026-05-19 11:05",
-  },
-  {
-    id: "3",
-    fileName: "ADM_공지사항관리.clx.js",
-    outputType: "MD",
-    status: "completed",
-    tokenUsage: 760,
-    createdAt: "2026-05-18 16:48",
-  },
-];
-
 const stats = [
   {
     label: "분석 카테고리",
@@ -113,7 +87,22 @@ const stats = [
   },
 ];
 
-export default function Home() {
+export default async function Home() {
+  // Supabase에서 최근 생성 로그 조회 (실패 시 빈 배열)
+  let recentHistory: { id: string; fileName: string; outputType: string; tokenUsage: number; createdAt: string }[] = [];
+  try {
+    const logs = await listRecentGenerationLogs(5);
+    recentHistory = logs.map((log) => ({
+      id: log.id,
+      fileName: log.file_name,
+      outputType: log.output_type.toUpperCase(),
+      tokenUsage: log.token_usage,
+      createdAt: new Date(log.created_at).toLocaleString("ko-KR"),
+    }));
+  } catch {
+    // DB 연결 실패 시 빈 히스토리
+  }
+
   return (
     <div className="flex flex-col min-h-screen">
       {/* 히어로 섹션 */}
@@ -210,7 +199,9 @@ export default function Home() {
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
               <h2 className="text-base font-semibold">최근 생성 히스토리</h2>
-              <Badge variant="outline" className="text-xs">더미 데이터</Badge>
+              {recentHistory.length === 0 && (
+                <Badge variant="outline" className="text-xs">아직 기록 없음</Badge>
+              )}
             </div>
             <Link
               href="/result"
@@ -223,6 +214,11 @@ export default function Home() {
 
           <Card>
             <CardContent className="p-0">
+              {recentHistory.length === 0 ? (
+                <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
+                  매뉴얼을 생성하면 여기에 히스토리가 표시됩니다.
+                </div>
+              ) : (
               <ul role="list" aria-label="최근 생성 히스토리 목록">
                 {recentHistory.map((item, index) => (
                   <li key={item.id}>
@@ -251,6 +247,7 @@ export default function Home() {
                   </li>
                 ))}
               </ul>
+              )}
             </CardContent>
           </Card>
         </Container>
