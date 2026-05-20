@@ -1,11 +1,18 @@
 /**
  * AI API 클라이언트
  * GitHub Models API 및 VS Code Extension 프록시 지원
+ * - 재시도 로직 (exponential backoff)
+ * - Rate limit / 5xx 에러 자동 재시도
  */
 import type { AiSettings, AiRequest, AiResponse, AiMessage, AiUsage } from "@/types";
 
 /** GitHub Models API 엔드포인트 */
 const GITHUB_MODELS_URL = "https://models.github.ai/inference/chat/completions";
+
+/** 재시도 설정 */
+const MAX_RETRIES = 3;
+const INITIAL_BACKOFF_MS = 1000;
+const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 
 /**
  * 프록시 종류마다 다른 usage 필드명을 OpenAI 형식으로 정규화.
@@ -72,6 +79,7 @@ function fillEstimatedUsage(
 
 /**
  * AI 설정에 따라 적절한 엔드포인트로 요청을 보낸다.
+ * 429/5xx 에러 시 exponential backoff 재시도 (최대 3회)
  */
 export async function callAi(
   settings: AiSettings,
@@ -100,29 +108,55 @@ export async function callAi(
     headers["Authorization"] = `Bearer ${settings.apiKey}`;
   }
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(payload),
-  });
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      });
 
-  if (!response.ok) {
-    const errorBody = await response.text().catch(() => "");
-    throw new Error(
-      `AI API 요청 실패 (${response.status}): ${errorBody || response.statusText}`
-    );
+      if (!response.ok) {
+        const errorBody = await response.text().catch(() => "");
+        // 재시도 가능한 상태 코드이고 아직 재시도 횟수가 남았으면 재시도
+        if (RETRYABLE_STATUS_CODES.has(response.status) && attempt < MAX_RETRIES) {
+          lastError = new Error(
+            `AI API 요청 실패 (${response.status}): ${errorBody || response.statusText}`
+          );
+          await sleep(INITIAL_BACKOFF_MS * Math.pow(2, attempt));
+          continue;
+        }
+        throw new Error(
+          `AI API 요청 실패 (${response.status}): ${errorBody || response.statusText}`
+        );
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const raw: any = await response.json();
+      const normalizedUsage = normalizeUsage(raw?.usage);
+      const responseContent: string =
+        raw?.choices?.[0]?.message?.content ?? "";
+      const data: AiResponse = {
+        ...raw,
+        usage: fillEstimatedUsage(normalizedUsage, messages, responseContent),
+      };
+      return data;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      // 네트워크 에러 등도 재시도
+      if (attempt < MAX_RETRIES) {
+        await sleep(INITIAL_BACKOFF_MS * Math.pow(2, attempt));
+        continue;
+      }
+    }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const raw: any = await response.json();
-  const normalizedUsage = normalizeUsage(raw?.usage);
-  const responseContent: string =
-    raw?.choices?.[0]?.message?.content ?? "";
-  const data: AiResponse = {
-    ...raw,
-    usage: fillEstimatedUsage(normalizedUsage, messages, responseContent),
-  };
-  return data;
+  throw lastError ?? new Error("AI API 호출 실패");
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
