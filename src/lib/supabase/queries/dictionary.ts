@@ -4,11 +4,13 @@ import type {
   DictionaryInsert,
   DictionaryUpdate,
   DictionaryCategory,
+  DictionaryContextType,
 } from "@/types";
 
 export interface DictionaryListParams {
   search?: string;        // term 또는 description 검색
   category?: DictionaryCategory | "all";
+  contextType?: DictionaryContextType | "all";
   page?: number;          // 1-based
   pageSize?: number;
 }
@@ -22,13 +24,15 @@ export interface DictionaryListResult {
 export async function listDictionary({
   search = "",
   category = "all",
+  contextType = "all",
   page = 1,
   pageSize = 20,
 }: DictionaryListParams = {}): Promise<DictionaryListResult> {
   let query = supabase
     .from("dictionary")
     .select("*", { count: "exact" })
-    .order("created_at", { ascending: false });
+    .order("term", { ascending: true })
+    .order("context_type", { ascending: true });
 
   if (search.trim()) {
     query = query.or(
@@ -38,6 +42,10 @@ export async function listDictionary({
 
   if (category && category !== "all") {
     query = query.eq("category", category);
+  }
+
+  if (contextType && contextType !== "all") {
+    query = query.eq("context_type", contextType);
   }
 
   const from = (page - 1) * pageSize;
@@ -51,14 +59,16 @@ export async function listDictionary({
   return { data: (data ?? []) as Dictionary[], total: count ?? 0 };
 }
 
-/** 단어사전 단건 조회 (term 기준) — AI 호출 전 중복 확인용 */
+/** 단어사전 단건 조회 (term + context_type 기준) */
 export async function findDictionaryByTerm(
-  term: string
+  term: string,
+  contextType: DictionaryContextType
 ): Promise<Dictionary | null> {
   const { data, error } = await supabase
     .from("dictionary")
     .select("*")
     .eq("term", term.trim())
+    .eq("context_type", contextType)
     .maybeSingle();
 
   if (error) throw new Error(`단어 조회 실패: ${error.message}`);
@@ -66,12 +76,13 @@ export async function findDictionaryByTerm(
 }
 
 /**
- * 여러 term 을 한 번의 IN 쿼리로 일괄 조회한다.
- * 반환값: Map<term, description> — 사전에 없는 term 은 포함되지 않는다.
+ * 여러 term 을 한 번의 IN 쿼리로 일괄 조회시킵니다. (context_type 별 조회)
+ * 반환값: Map<term, description> — 사전에 없는 term 은 포함되지 않습니다.
  * terms 가 빈 배열이면 즉시 빈 Map 반환 (DB 호출 없음).
  */
 export async function findDictionaryByTerms(
-  terms: string[]
+  terms: string[],
+  contextType: DictionaryContextType
 ): Promise<Map<string, string>> {
   if (terms.length === 0) return new Map();
 
@@ -79,7 +90,8 @@ export async function findDictionaryByTerms(
   const { data, error } = await supabase
     .from("dictionary")
     .select("term, description")
-    .in("term", trimmed);
+    .in("term", trimmed)
+    .eq("context_type", contextType);
 
   if (error) throw new Error(`단어 일괄 조회 실패: ${error.message}`);
 
@@ -93,15 +105,14 @@ export async function findDictionaryByTerms(
 }
 
 /**
- * 단어사전 등록 (term PK 충돌 시 description·source·updated_at 갱신).
- * AI 자동 생성 결과나 수동 등록 모두 이 함수를 사용한다.
+ * 단어사전 등록 (PK (term, context_type) 충돌 시 description·source·updated_at 갱신).
  */
 export async function upsertDictionary(
   input: DictionaryInsert
 ): Promise<Dictionary> {
   const { data, error } = await supabase
     .from("dictionary")
-    .upsert(input as unknown as Record<string, unknown>, { onConflict: "term" })
+    .upsert(input as unknown as Record<string, unknown>, { onConflict: "term,context_type" })
     .select()
     .single();
 
@@ -109,22 +120,17 @@ export async function upsertDictionary(
   return data as Dictionary;
 }
 
-/** @deprecated upsertDictionary 를 사용하세요 */
-export async function insertDictionary(
-  input: DictionaryInsert
-): Promise<Dictionary> {
-  return upsertDictionary(input);
-}
-
-/** 단어사전 수정 */
+/** 단어사전 수정 (term + context_type 으로 행 특정) */
 export async function updateDictionary(
   term: string,
+  contextType: DictionaryContextType,
   input: DictionaryUpdate
 ): Promise<Dictionary> {
   const { data, error } = await supabase
     .from("dictionary")
     .update(input as Record<string, unknown>)
     .eq("term", term)
+    .eq("context_type", contextType)
     .select()
     .single();
 
@@ -132,9 +138,16 @@ export async function updateDictionary(
   return data as Dictionary;
 }
 
-/** 단어사전 삭제 */
-export async function deleteDictionary(term: string): Promise<void> {
-  const { error } = await supabase.from("dictionary").delete().eq("term", term);
+/** 단어사전 삭제 (term + context_type 으로 행 특정) */
+export async function deleteDictionary(
+  term: string,
+  contextType: DictionaryContextType
+): Promise<void> {
+  const { error } = await supabase
+    .from("dictionary")
+    .delete()
+    .eq("term", term)
+    .eq("context_type", contextType);
   if (error) throw new Error(`단어 삭제 실패: ${error.message}`);
 }
 
