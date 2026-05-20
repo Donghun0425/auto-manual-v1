@@ -14,6 +14,11 @@ export function renderHtml(
     .sort((a, b) => a.order - b.order);
 
   const title = parseResult.overview.programName || parseResult.filePath.split("/").pop() || "매뉴얼";
+  const o = parseResult.overview;
+  const metaTags = [o.systemName, o.subSystem, parseResult.filePath.split("/").pop()]
+    .filter(Boolean)
+    .map(t => `<span class="meta-tag">${escapeHtml(t!)}</span>`)
+    .join("");
   const bodyParts: string[] = [];
 
   for (const section of enabledSections) {
@@ -33,11 +38,14 @@ ${CSS_STYLES}
 </head>
 <body>
 <div class="manual">
+<div class="manual-header">
 <h1>${escapeHtml(title)}</h1>
+<div class="manual-meta">${metaTags}</div>
+</div>
 ${bodyParts.join("\n")}
-<footer class="footer">
+<div class="footer">
 <p>생성일시: ${new Date().toLocaleString("ko-KR")} | CLX 매뉴얼 자동생성기</p>
-</footer>
+</div>
 </div>
 </body>
 </html>`;
@@ -75,14 +83,24 @@ function renderOverview(data: ClxParseResult, customTitle?: string): string {
   if (!o.programName && !o.systemName) return "";
 
   const title = customTitle || "화면개요";
+  const descRow = o.description
+    ? `<div class="info-row full-width"><span class="info-label">설명</span><span class="info-value">${escapeHtml(o.description)}</span></div>`
+    : "";
+  const authorRow = o.author
+    ? `<div class="info-row"><span class="info-label">작성자</span><span class="info-value">${escapeHtml(o.author)}</span></div>`
+    : "";
+  const dateRow = o.createDate
+    ? `<div class="info-row"><span class="info-label">작성일</span><span class="info-value">${escapeHtml(o.createDate)}</span></div>`
+    : "";
+
   return `<h2>${escapeHtml(title)}</h2>
 <div class="section">
-  <div class="info-row"><span class="info-label">시스템명</span><span>${escapeHtml(o.systemName)}</span></div>
-  <div class="info-row"><span class="info-label">부시스템</span><span>${escapeHtml(o.subSystem)}</span></div>
-  <div class="info-row"><span class="info-label">프로그램</span><span>${escapeHtml(o.programName)}</span></div>
-  <div class="info-row"><span class="info-label">설명</span><span>${escapeHtml(o.description || "-")}</span></div>
-  ${o.author ? `<div class="info-row"><span class="info-label">작성자</span><span>${escapeHtml(o.author)}</span></div>` : ""}
-  ${o.createDate ? `<div class="info-row"><span class="info-label">작성일</span><span>${escapeHtml(o.createDate)}</span></div>` : ""}
+<div class="info-grid">
+  <div class="info-row"><span class="info-label">시스템명</span><span class="info-value">${escapeHtml(o.systemName)}</span></div>
+  <div class="info-row"><span class="info-label">부시스템</span><span class="info-value">${escapeHtml(o.subSystem)}</span></div>
+  <div class="info-row"><span class="info-label">프로그램</span><span class="info-value">${escapeHtml(o.programName)}</span></div>
+  ${authorRow}${dateRow}${descRow}
+</div>
 </div>`;
 }
 
@@ -252,7 +270,7 @@ function renderConditions(data: ClxParseResult, customTitle?: string, section?: 
   for (const group of groups) {
     const heading = group.title ?? group.groupType;
     parts.push('<div class="section">');
-    parts.push(`<h3>${escapeHtml(heading)} <span style="font-size:11px;color:#888;font-weight:normal;">(${escapeHtml(group.groupId)})</span></h3>`);
+    parts.push(`<h3>${escapeHtml(heading)} <span class="group-id">(${escapeHtml(group.groupId)})</span></h3>`);
 
     if (showTable && group.controls.length > 0) {
       parts.push('<table><thead><tr>');
@@ -294,7 +312,7 @@ function renderInfoGroups(data: ClxParseResult, customTitle?: string, section?: 
   for (const group of groups) {
     const heading = group.title ?? group.groupId;
     parts.push('<div class="section">');
-    parts.push(`<h3>${escapeHtml(heading)} <span style="font-size:11px;color:#888;font-weight:normal;">(${escapeHtml(group.groupId)})</span></h3>`);
+    parts.push(`<h3>${escapeHtml(heading)} <span class="group-id">(${escapeHtml(group.groupId)})</span></h3>`);
 
     if (showTable && group.controls.length > 0) {
       parts.push('<table><thead><tr>');
@@ -332,7 +350,7 @@ function renderGrids(data: ClxParseResult, customTitle?: string, section?: Layou
   for (const grid of grids) {
     const gridTitle = grid.title || grid.gridId;
     parts.push('<div class="section">');
-    parts.push(`<h3>${escapeHtml(gridTitle)} <span style="font-size:11px;color:#888;font-weight:normal;">(${escapeHtml(grid.gridId)})</span></h3>`);
+    parts.push(`<h3>${escapeHtml(gridTitle)} <span class="group-id">(${escapeHtml(grid.gridId)})</span></h3>`);
 
     // 그리드 옵션 배지
     const badges: string[] = [];
@@ -407,9 +425,6 @@ function renderNotes(data: ClxParseResult, customTitle?: string): string {
     .filter(v => !/inq|inquiry|search|save|del/i.test(v.functionName))
     .filter(v => !COMPLETION_RE.test(v.message.trim()));
 
-  const hasContent = requiredFields.length > 0 || otherVals.length > 0;
-  if (!hasContent) return "";
-
   const title = customTitle || "참고사항";
   const lines: string[] = [`<h2>${escapeHtml(title)}</h2>`, '<div class="section">'];
 
@@ -454,6 +469,14 @@ function renderNotes(data: ClxParseResult, customTitle?: string): string {
     }
   }
 
+  // ── 고정 안내사항 (항상 포함) ──
+  lines.push('<span class="bold-tag">🔧 시스템 오류 문의</span>');
+  lines.push('<p class="step note-warn">시스템 오류 또는 사용 중 문제가 발생한 경우, 정보화팀(내선: 0000)으로 문의해주세요.</p>');
+  lines.push('<span class="bold-tag">💾 데이터 저장 주의</span>');
+  lines.push('<p class="step note-warn">입력한 데이터는 \'저장\' 버튼을 클릭하기 전까지 저장되지 않습니다. 화면을 벗어나기 전 반드시 저장 여부를 확인하세요.</p>');
+  lines.push('<span class="bold-tag">⏱ 세션 만료 안내</span>');
+  lines.push('<p class="step note-warn">일정 시간 동안 사용하지 않으면 자동으로 로그아웃됩니다. 장시간 작업 시 중간 저장을 권장합니다.</p>');
+
   lines.push("</div>");
   return lines.join("\n");
 }
@@ -479,147 +502,265 @@ function escapeHtml(str: string): string {
 const CSS_STYLES = `
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    font-family: -apple-system, 'Segoe UI', 'Malgun Gothic', sans-serif;
-    max-width: 820px;
+    font-family: 'Noto Sans KR', -apple-system, 'Segoe UI', 'Malgun Gothic', sans-serif;
+    max-width: 860px;
     margin: 0 auto;
-    padding: 28px 36px 48px;
-    line-height: 1.55;
-    color: #1a1a1a;
-    font-size: 12px;
-    background: #ffffff;
+    padding: 32px 20px 64px;
+    line-height: 1.7;
+    color: #1e293b;
+    font-size: 13px;
+    background: #f1f5f9;
   }
-  .manual { }
-  /* 제목 */
+  /* 매뉴얼 카드 컨테이너 */
+  .manual {
+    background: #ffffff;
+    border-radius: 16px;
+    padding: 40px 44px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 8px 32px rgba(0,0,0,0.05);
+  }
+  /* 제목 영역 */
+  .manual-header {
+    padding-bottom: 24px;
+    margin-bottom: 28px;
+    border-bottom: 1.5px solid #e2e8f0;
+  }
   h1 {
-    font-size: 17px;
+    font-size: 22px;
     font-weight: 700;
-    color: #111;
-    letter-spacing: -0.03em;
-    padding-bottom: 10px;
-    border-bottom: 1.5px solid #e4e4e7;
-    margin-bottom: 20px;
+    color: #0f172a;
+    letter-spacing: -0.04em;
+    line-height: 1.3;
+    margin-bottom: 10px;
+  }
+  .manual-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .meta-tag {
+    display: inline-flex;
+    align-items: center;
+    font-size: 11px;
+    color: #64748b;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    padding: 3px 10px;
+    border-radius: 20px;
+    font-weight: 500;
   }
   /* 섹션 제목 */
   h2 {
-    font-size: 11.5px;
-    font-weight: 600;
-    color: #18181b;
-    margin-top: 24px;
-    margin-bottom: 8px;
-    padding-left: 9px;
-    border-left: 3px solid #18181b;
-    letter-spacing: -0.01em;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    font-size: 13px;
+    font-weight: 700;
+    color: #0f172a;
+    margin-top: 32px;
+    margin-bottom: 12px;
+    letter-spacing: -0.02em;
+  }
+  h2::before {
+    content: '';
+    display: inline-block;
+    width: 4px;
+    height: 16px;
+    background: linear-gradient(180deg, #3b82f6 0%, #6366f1 100%);
+    border-radius: 2px;
+    flex-shrink: 0;
   }
   /* 섹션 박스 */
   .section {
-    padding: 12px 14px;
-    border: 1px solid #e4e4e7;
-    border-radius: 6px;
-    background: #fafafa;
-    margin-bottom: 4px;
+    padding: 16px 20px;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    background: #ffffff;
+    margin-bottom: 8px;
   }
-  /* 개요 항목 행 */
+  /* 개요 그리드 */
+  .info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 2px 24px;
+  }
   .info-row {
     display: flex;
     align-items: baseline;
     gap: 10px;
-    margin-bottom: 4px;
-    font-size: 11.5px;
+    padding: 5px 0;
+    border-bottom: 1px solid #f8fafc;
+    font-size: 12.5px;
   }
+  .info-row:last-child { border-bottom: none; }
+  .info-row.full-width { grid-column: span 2; }
   .info-label {
-    font-weight: 600;
-    min-width: 68px;
-    color: #71717a;
     font-size: 10.5px;
+    font-weight: 600;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    min-width: 64px;
     flex-shrink: 0;
+  }
+  .info-value {
+    color: #1e293b;
+    font-weight: 500;
   }
   /* 단계 설명 */
   .step {
-    margin: 3px 0 3px 14px;
-    color: #3f3f46;
-    font-size: 11.5px;
+    margin: 5px 0 5px 14px;
+    color: #475569;
+    font-size: 12.5px;
+    line-height: 1.65;
   }
-  /* 전처리 주의 메시지 */
-  .note-warn { color: #92400e; }
-  /* 전처리 필수항목 */
-  .note-req { color: #166534; font-weight: 500; }
+  /* 주의 메시지 */
+  .note-warn {
+    color: #92400e;
+    background: #fffbeb;
+    border-left: 3px solid #f59e0b;
+    padding: 5px 12px;
+    margin: 5px 0 5px 14px;
+    border-radius: 0 8px 8px 0;
+    font-size: 12.5px;
+  }
+  /* 필수항목 */
+  .note-req {
+    color: #14532d;
+    background: #f0fdf4;
+    border-left: 3px solid #22c55e;
+    padding: 5px 12px;
+    margin: 5px 0 5px 14px;
+    border-radius: 0 8px 8px 0;
+    font-size: 12.5px;
+    font-weight: 500;
+  }
   /* {B}태그 스타일 */
   .bold-tag {
-    display: block;
-    font-weight: 600;
-    color: #18181b;
-    font-size: 11.5px;
-    margin-top: 14px;
-    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-weight: 700;
+    color: #0f172a;
+    font-size: 12.5px;
+    margin-top: 20px;
+    margin-bottom: 6px;
+    padding-bottom: 6px;
+    border-bottom: 1px solid #f1f5f9;
   }
-  /* 필수항목 뱃지 */
-  .required {
+  .bold-tag::before {
+    content: '';
     display: inline-block;
-    background: #f4f4f5;
-    color: #3f3f46;
-    padding: 1px 7px;
-    border-radius: 4px;
+    width: 7px;
+    height: 7px;
+    min-width: 7px;
+    background: #3b82f6;
+    border-radius: 50%;
+  }
+  /* 필수항목 pill */
+  .required {
+    display: inline-flex;
+    align-items: center;
+    background: #eff6ff;
+    color: #1d4ed8;
+    padding: 2px 10px;
+    border-radius: 20px;
     margin: 2px 3px;
-    font-size: 10.5px;
-    border: 1px solid #e4e4e7;
+    font-size: 11px;
+    font-weight: 500;
+    border: 1px solid #bfdbfe;
   }
   /* 테이블 */
   table {
     width: 100%;
     border-collapse: collapse;
-    margin: 8px 0;
-    font-size: 11px;
+    margin: 10px 0;
+    font-size: 12px;
   }
-  th, td {
-    border: 1px solid #e4e4e7;
-    padding: 5px 10px;
-    text-align: left;
-    vertical-align: middle;
+  thead tr {
+    background: #f8fafc;
+    border-bottom: 1.5px solid #cbd5e1;
   }
   th {
-    background: #f4f4f5;
+    padding: 9px 14px;
+    text-align: left;
     font-weight: 600;
-    color: #52525b;
+    color: #64748b;
     font-size: 10.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    white-space: nowrap;
   }
-  tr:nth-child(even) td { background: #fafafa; }
+  td {
+    padding: 9px 14px;
+    border-bottom: 1px solid #f1f5f9;
+    color: #334155;
+    vertical-align: middle;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: #f8fafc; }
   /* URL 모노스페이스 */
   .popup-url {
     font-family: 'Consolas', 'Menlo', monospace;
-    color: #52525b;
-    font-size: 10.5px;
+    color: #3b82f6;
+    font-size: 11px;
+    background: #eff6ff;
+    padding: 1px 7px;
+    border-radius: 5px;
+    border: 1px solid #bfdbfe;
   }
-  /* 그리드 섹션 소제목 */
+  /* 그리드 소제목 */
   h3 {
-    font-size: 12px;
+    font-size: 12.5px;
     font-weight: 600;
-    color: #18181b;
-    margin-bottom: 6px;
+    color: #334155;
+    margin-bottom: 10px;
+  }
+  h3 .group-id {
+    font-size: 10.5px;
+    color: #94a3b8;
+    font-weight: 400;
+    font-family: 'Consolas', 'Menlo', monospace;
+    margin-left: 6px;
   }
   /* 옵션 배지 */
   .badge {
-    display: inline-block;
-    background: #f4f4f5;
-    color: #52525b;
-    padding: 1px 6px;
-    border-radius: 4px;
-    margin: 1px 2px;
-    font-size: 10px;
-    border: 1px solid #e4e4e7;
+    display: inline-flex;
+    align-items: center;
+    background: #f1f5f9;
+    color: #475569;
+    padding: 2px 9px;
+    border-radius: 20px;
+    margin: 1px 3px;
+    font-size: 10.5px;
+    font-weight: 500;
+    border: 1px solid #e2e8f0;
   }
   code {
     font-family: 'Consolas', 'Menlo', monospace;
-    font-size: 10.5px;
-    color: #52525b;
+    font-size: 11px;
+    color: #475569;
+    background: #f1f5f9;
+    padding: 1px 6px;
+    border-radius: 5px;
+    border: 1px solid #e2e8f0;
   }
   ul { padding-left: 20px; margin: 8px 0; }
-  li { margin-bottom: 4px; font-size: 11.5px; }
+  li { margin-bottom: 5px; font-size: 12.5px; color: #475569; }
+  /* 화면 이미지 */
+  .screen-image { margin-bottom: 24px; text-align: center; }
+  .screen-image img {
+    max-width: 100%;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
   .footer {
-    margin-top: 32px;
-    padding-top: 12px;
-    border-top: 1px solid #e4e4e7;
-    font-size: 10px;
-    color: #a1a1aa;
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid #e2e8f0;
+    font-size: 11px;
+    color: #94a3b8;
     text-align: center;
+    letter-spacing: 0.01em;
   }
 `;
