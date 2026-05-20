@@ -2,9 +2,9 @@
  * 단어사전 연동 AI 설명 생성기
  * 사전 우선 조회 → 미존재 시 AI 호출 → 자동 INSERT
  */
-import { findDictionaryByTerm, insertDictionary } from "@/lib/supabase/queries/dictionary";
+import { findDictionaryByTerm, upsertDictionary } from "@/lib/supabase/queries/dictionary";
 import { callAi, extractContent } from "./client";
-import type { AiSettings, AiMessage, AiUsage, AiGenerationResult } from "@/types";
+import type { AiSettings, AiMessage, AiUsage, AiGenerationResult, DictionaryContextType } from "@/types";
 
 /**
  * 단어사전 우선 조회, 없으면 AI 생성 후 사전에 자동 등록
@@ -14,11 +14,13 @@ export async function getDescriptionWithDictionary(
   category: string,
   promptMessages: AiMessage[],
   settings: AiSettings,
-  options?: { skipInsert?: boolean }
+  options?: { skipInsert?: boolean; contextType?: DictionaryContextType }
 ): Promise<AiGenerationResult> {
+  const contextType: DictionaryContextType = options?.contextType ?? "그리드";
+
   // 1. 단어사전에서 우선 조회
   try {
-    const existing = await findDictionaryByTerm(term);
+    const existing = await findDictionaryByTerm(term, contextType);
     if (existing) {
       return {
         term,
@@ -43,8 +45,9 @@ export async function getDescriptionWithDictionary(
   // 3. 사전에 자동 등록 (실패해도 무시)
   if (!options?.skipInsert && description) {
     try {
-      await insertDictionary({
+      await upsertDictionary({
         term,
+        context_type: contextType,
         category: mapToCategory(category),
         description,
         source: "ai",
