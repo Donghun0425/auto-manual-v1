@@ -31,7 +31,7 @@ export function DictionaryTable({ items, onEdit, onDelete }: DictionaryTableProp
         <tbody>
           {items.map((item, index) => (
             <tr
-              key={item.id}
+              key={item.term}
               className={cn(
                 "border-b last:border-0 transition-colors hover:bg-muted/30",
                 index % 2 === 1 && "bg-muted/10"

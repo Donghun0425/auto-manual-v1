@@ -28,6 +28,7 @@ import {
 import {
   listDictionary,
   insertDictionary,
+  upsertDictionary,
   updateDictionary,
   deleteDictionary,
   getDictionaryStats,
@@ -130,15 +131,15 @@ export default function DictionaryPage() {
   // ── CRUD 핸들러 ───────────────────────────────────────────
   async function handleFormSubmit(
     values: { term: string; category: DictionaryCategory; description: string },
-    id?: string
+    originalTerm?: string
   ) {
     setSubmitting(true);
     try {
-      if (id) {
-        await updateDictionary(id, values);
+      if (originalTerm) {
+        await updateDictionary(originalTerm, values);
         toast.success(`"${values.term}" 용어가 수정되었습니다.`);
       } else {
-        await insertDictionary({ ...values, source: "manual" });
+        await upsertDictionary({ ...values, source: "manual" });
         toast.success(`"${values.term}" 용어가 등록되었습니다.`);
         setCurrentPage(1);
       }
@@ -158,7 +159,7 @@ export default function DictionaryPage() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      await deleteDictionary(deleteTarget.id);
+      await deleteDictionary(deleteTarget.term);
       toast.success(`"${deleteTarget.term}" 용어가 삭제되었습니다.`);
       setDeleteTarget(null);
       // 현재 페이지가 마지막 항목이었다면 이전 페이지로

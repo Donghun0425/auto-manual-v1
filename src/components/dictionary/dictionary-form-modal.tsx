@@ -89,7 +89,7 @@ export function DictionaryFormModal({ open, editItem, onClose, onSubmit, submitt
         {/* 폼 */}
         <form
           onSubmit={handleSubmit((values) => {
-            onSubmit(values, editItem?.id);
+            onSubmit(values, editItem?.term);
           })}
           noValidate
         >
