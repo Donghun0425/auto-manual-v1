@@ -2,9 +2,8 @@
  * Supabase 데이터베이스 스키마 타입 정의
  */
 
-/** 단어사전 테이블 */
+/** 단어사전 테이블 — PK: term */
 export interface Dictionary {
-  id: string;
   term: string;
   category: DictionaryCategory;
   description: string;

@@ -4,9 +4,9 @@
 -- ============================================================
 
 -- ── 1. 단어사전 (dictionary) ─────────────────────────────────
+-- term 을 PK 로 사용 — 동일 단어 중복 방지, 별도 id 컬럼 불필요
 CREATE TABLE IF NOT EXISTS public.dictionary (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  term        TEXT NOT NULL,
+  term        TEXT PRIMARY KEY,
   category    TEXT NOT NULL CHECK (
                 category IN ('공통','학사','행정','연구','부속','기타')
               ),
@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS public.dictionary (
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_dictionary_term     ON public.dictionary (term);
+-- term 은 PK 이므로 별도 인덱스 불필요 (PK 가 자동 생성)
 CREATE INDEX IF NOT EXISTS idx_dictionary_category ON public.dictionary (category);
 CREATE INDEX IF NOT EXISTS idx_dictionary_user_id  ON public.dictionary (user_id);
 
