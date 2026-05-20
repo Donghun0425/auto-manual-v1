@@ -9,6 +9,7 @@ import type {
   GridColumnInfo,
   ConditionControlInfo,
   ManualResult,
+  DictionaryContextType,
 } from "@/types";
 import { analyzeFile } from "@/lib/parser";
 import { callAi, extractContent } from "./client";
@@ -32,6 +33,12 @@ export interface GenerateFileOptions {
 
 /** 배치 AI 호출 시 최대 컬럼/컨트롤 수 (초과 시 분할) */
 const BATCH_CHUNK_SIZE = 15;
+
+/** AI 응답에서 마크다운 코드블록(```json ... ```) 래핑을 제거 */
+function stripCodeBlock(text: string): string {
+  const m = /^```(?:json)?\s*\n?([\s\S]*?)\n?```\s*$/.exec(text.trim());
+  return m ? m[1].trim() : text.trim();
+}
 
 /**
  * 파일명 앞글자로 카테고리 판별
@@ -107,6 +114,8 @@ async function enrichGridDescriptions(
   filePath: string
 ): Promise<AiUsage> {
   const category = getCategoryFromFileName(filePath);
+  const contextType: DictionaryContextType = "그리드";
+
   for (const grid of parseResult.items.grids) {
     if (grid.skipAiDescriptions) continue;
 
@@ -118,7 +127,7 @@ async function enrichGridDescriptions(
     let toProcess = needDesc;
     if (useDictionary) {
       const terms = needDesc.map((c) => c.headerText);
-      const dictMap = await findDictionaryByTerms(terms);
+      const dictMap = await findDictionaryByTerms(terms, contextType);
       toProcess = needDesc.filter((col) => {
         const found = dictMap.get(col.headerText.trim());
         if (found) { col.description = found; return false; }
@@ -135,10 +144,10 @@ async function enrichGridDescriptions(
       usage = addUsage(usage, batchUsage);
     }
 
-    // AI 생성 결과를 단어사전에 저장 (term PK — 충돌 시 덮어쓰기)
+    // AI 생성 결과를 단어사전에 저장 — context_type='grid'
     for (const col of toProcess) {
       if (col.description) {
-        upsertDictionary({ term: col.headerText, category, description: col.description, source: "ai" }).catch(() => {});
+        upsertDictionary({ term: col.headerText, context_type: contextType, category, description: col.description, source: "ai" }).catch(() => {});
       }
     }
   }
@@ -156,13 +165,17 @@ async function batchGridColumnAi(
 
   const messages = buildGridColumnPrompt(parseResult, grid, columns);
   const response = await callAi(settings, messages);
-  const text = extractContent(response);
+  const raw = extractContent(response);
+  const text = stripCodeBlock(raw);
 
   try {
     const parsed = JSON.parse(text) as { columnName: string; description: string }[];
     for (const item of parsed) {
-      const col = columns.find((c) => c.columnName === item.columnName);
-      if (col) col.description = item.description;
+      // 1차: headerText(항목명) 매칭 (프롬프트에서 항목명 기반 응답 요청)
+      let col = columns.find((c) => c.headerText === item.columnName);
+      // 2차: columnName(ID) 매칭 (fallback)
+      if (!col) col = columns.find((c) => c.columnName === item.columnName);
+      if (col && item.description) col.description = item.description;
     }
   } catch {
     // JSON 파싱 실패 시 원문을 첫 번째 컬럼에 할당
@@ -172,6 +185,13 @@ async function batchGridColumnAi(
   }
 
   return response.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+}
+
+/** groupType → DictionaryContextType 매핑 */
+function groupTypeToContextType(groupType: string): DictionaryContextType {
+  if (groupType === "조회조건") return "조회조건";
+  if (groupType === "처리조건" || groupType === "일괄처리") return "처리조건";
+  return "인포영역";
 }
 
 /** 조건그룹 컨트롤 설명 보강 */
@@ -189,6 +209,7 @@ async function enrichConditionDescriptions(
   ];
 
   for (const group of allGroups) {
+    const contextType = groupTypeToContextType(group.groupType);
     const needDesc = group.controls.filter((c) => !c.description);
     if (needDesc.length === 0) continue;
 
@@ -196,7 +217,7 @@ async function enrichConditionDescriptions(
     let toProcess = needDesc;
     if (useDictionary) {
       const terms = needDesc.map((c) => c.labelText);
-      const dictMap = await findDictionaryByTerms(terms);
+      const dictMap = await findDictionaryByTerms(terms, contextType);
       toProcess = needDesc.filter((ctrl) => {
         const found = dictMap.get(ctrl.labelText.trim());
         if (found) { ctrl.description = found; return false; }
@@ -213,10 +234,10 @@ async function enrichConditionDescriptions(
       usage = addUsage(usage, batchUsage);
     }
 
-    // AI 생성 결과를 단어사전에 저장 (term PK — 충돌 시 덮어쓰기)
+    // AI 생성 결과를 단어사전에 저장 — context_type 별 독립 코시
     for (const ctrl of toProcess) {
       if (ctrl.description) {
-        upsertDictionary({ term: ctrl.labelText, category, description: ctrl.description, source: "ai" }).catch(() => {});
+        upsertDictionary({ term: ctrl.labelText, context_type: contextType, category, description: ctrl.description, source: "ai" }).catch(() => {});
       }
     }
   }
@@ -234,13 +255,17 @@ async function batchConditionAi(
 
   const messages = buildConditionControlPrompt(parseResult, groupType, controls);
   const response = await callAi(settings, messages);
-  const text = extractContent(response);
+  const raw = extractContent(response);
+  const text = stripCodeBlock(raw);
 
   try {
     const parsed = JSON.parse(text) as { controlId: string; description: string }[];
     for (const item of parsed) {
-      const ctrl = controls.find((c) => c.controlId === item.controlId);
-      if (ctrl) ctrl.description = item.description;
+      // 1차: controlId 매칭
+      let ctrl = controls.find((c) => c.controlId === item.controlId);
+      // 2차: labelText 매칭 (AI가 labelText를 반환하는 경우)
+      if (!ctrl) ctrl = controls.find((c) => c.labelText === item.controlId);
+      if (ctrl && item.description) ctrl.description = item.description;
     }
   } catch {
     if (controls.length === 1 && text) {
@@ -271,13 +296,14 @@ async function enrichButtonDescriptions(
     needDesc.map((b) => ({ name: b.name, functionName: b.functionName }))
   );
   const response = await callAi(settings, messages);
-  const text = extractContent(response);
+  const raw = extractContent(response);
+  const text = stripCodeBlock(raw);
 
   try {
     const parsed = JSON.parse(text) as { name: string; description: string }[];
     for (const item of parsed) {
       const btn = needDesc.find((b) => b.name === item.name);
-      if (btn) btn.description = item.description;
+      if (btn && item.description) btn.description = item.description;
     }
   } catch {
     if (needDesc.length === 1 && text) {

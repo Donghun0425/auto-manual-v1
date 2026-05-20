@@ -25,7 +25,7 @@ export function buildGridColumnPrompt(
 ): AiMessage[] {
   const screenContext = `화면명: ${parseResult.overview.programName}, 시스템: ${parseResult.overview.systemName}`;
   const columnList = columns
-    .map((c) => `- ${c.headerText} (ID: ${c.columnName}, 타입: ${c.controlType})`)
+    .map((c) => `- ${c.headerText} (타입: ${c.controlType})`)
     .join("\n");
 
   return [
@@ -44,7 +44,9 @@ ${columnList}
 - 반드시 2줄 이내로 작성하세요.
 
 정확히 아래 JSON 배열 형식으로 응답하세요. 다른 텍스트는 포함하지 마세요:
-[{"columnName": "항목ID", "description": "설명"}]`,
+[{"columnName": "항목명", "description": "설명"}]
+
+"columnName"에는 위 항목 목록의 항목명을 그대로 사용하세요.`,
     },
   ];
 }
