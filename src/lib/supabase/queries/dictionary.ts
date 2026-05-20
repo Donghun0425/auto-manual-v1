@@ -65,29 +65,66 @@ export async function findDictionaryByTerm(
   return data as Dictionary | null;
 }
 
-/** 단어사전 등록 */
-export async function insertDictionary(
+/**
+ * 여러 term 을 한 번의 IN 쿼리로 일괄 조회한다.
+ * 반환값: Map<term, description> — 사전에 없는 term 은 포함되지 않는다.
+ * terms 가 빈 배열이면 즉시 빈 Map 반환 (DB 호출 없음).
+ */
+export async function findDictionaryByTerms(
+  terms: string[]
+): Promise<Map<string, string>> {
+  if (terms.length === 0) return new Map();
+
+  const trimmed = terms.map((t) => t.trim());
+  const { data, error } = await supabase
+    .from("dictionary")
+    .select("term, description")
+    .in("term", trimmed);
+
+  if (error) throw new Error(`단어 일괄 조회 실패: ${error.message}`);
+
+  const map = new Map<string, string>();
+  for (const row of data ?? []) {
+    if (!map.has(row.term)) {
+      map.set(row.term, (row as { term: string; description: string }).description);
+    }
+  }
+  return map;
+}
+
+/**
+ * 단어사전 등록 (term PK 충돌 시 description·source·updated_at 갱신).
+ * AI 자동 생성 결과나 수동 등록 모두 이 함수를 사용한다.
+ */
+export async function upsertDictionary(
   input: DictionaryInsert
 ): Promise<Dictionary> {
   const { data, error } = await supabase
     .from("dictionary")
-    .insert(input as unknown as Record<string, unknown>)
+    .upsert(input as unknown as Record<string, unknown>, { onConflict: "term" })
     .select()
     .single();
 
-  if (error) throw new Error(`단어 등록 실패: ${error.message}`);
+  if (error) throw new Error(`단어 등록/수정 실패: ${error.message}`);
   return data as Dictionary;
+}
+
+/** @deprecated upsertDictionary 를 사용하세요 */
+export async function insertDictionary(
+  input: DictionaryInsert
+): Promise<Dictionary> {
+  return upsertDictionary(input);
 }
 
 /** 단어사전 수정 */
 export async function updateDictionary(
-  id: string,
+  term: string,
   input: DictionaryUpdate
 ): Promise<Dictionary> {
   const { data, error } = await supabase
     .from("dictionary")
     .update(input as Record<string, unknown>)
-    .eq("id", id)
+    .eq("term", term)
     .select()
     .single();
 
@@ -96,8 +133,8 @@ export async function updateDictionary(
 }
 
 /** 단어사전 삭제 */
-export async function deleteDictionary(id: string): Promise<void> {
-  const { error } = await supabase.from("dictionary").delete().eq("id", id);
+export async function deleteDictionary(term: string): Promise<void> {
+  const { error } = await supabase.from("dictionary").delete().eq("term", term);
   if (error) throw new Error(`단어 삭제 실패: ${error.message}`);
 }
 
