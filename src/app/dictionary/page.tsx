@@ -22,20 +22,21 @@ import { DictionaryFormModal } from "@/components/dictionary/dictionary-form-mod
 import { DeleteConfirmDialog } from "@/components/dictionary/delete-confirm-dialog";
 import {
   CATEGORY_LABELS,
+  CONTEXT_TYPE_LABELS,
   PAGE_SIZE_OPTIONS,
   type PageSize,
 } from "@/components/dictionary/dummy-data";
 import {
   listDictionary,
-  insertDictionary,
   upsertDictionary,
   updateDictionary,
   deleteDictionary,
   getDictionaryStats,
 } from "@/lib/supabase/queries/dictionary";
-import type { Dictionary, DictionaryCategory } from "@/types";
+import type { Dictionary, DictionaryCategory, DictionaryContextType } from "@/types";
 
 type FilterCategory = DictionaryCategory | "all";
+type FilterContextType = DictionaryContextType | "all";
 
 interface Stats {
   total: number;
@@ -54,6 +55,7 @@ export default function DictionaryPage() {
   // ── 필터 상태 ────────────────────────────────────────────
   const [searchQuery, setSearchQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<FilterCategory>("all");
+  const [contextTypeFilter, setContextTypeFilter] = useState<FilterContextType>("all");
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState<PageSize>(10);
 
@@ -76,6 +78,7 @@ export default function DictionaryPage() {
       const result = await listDictionary({
         search: debouncedSearch,
         category: categoryFilter,
+        contextType: contextTypeFilter,
         page: currentPage,
         pageSize,
       });
@@ -87,7 +90,7 @@ export default function DictionaryPage() {
     } finally {
       setLoading(false);
     }
-  }, [debouncedSearch, categoryFilter, currentPage, pageSize]);
+  }, [debouncedSearch, categoryFilter, contextTypeFilter, currentPage, pageSize]);
 
   const fetchStats = useCallback(async () => {
     try {
@@ -123,6 +126,11 @@ export default function DictionaryPage() {
     setCurrentPage(1);
   }
 
+  function handleContextTypeChange(ct: FilterContextType) {
+    setContextTypeFilter(ct);
+    setCurrentPage(1);
+  }
+
   function handlePageSizeChange(size: PageSize) {
     setPageSize(size);
     setCurrentPage(1);
@@ -130,13 +138,13 @@ export default function DictionaryPage() {
 
   // ── CRUD 핸들러 ───────────────────────────────────────────
   async function handleFormSubmit(
-    values: { term: string; category: DictionaryCategory; description: string },
-    originalTerm?: string
+    values: { term: string; context_type: DictionaryContextType; category: DictionaryCategory; description: string },
+    original?: { term: string; context_type: DictionaryContextType }
   ) {
     setSubmitting(true);
     try {
-      if (originalTerm) {
-        await updateDictionary(originalTerm, values);
+      if (original) {
+        await updateDictionary(original.term, original.context_type, values);
         toast.success(`"${values.term}" 용어가 수정되었습니다.`);
       } else {
         await upsertDictionary({ ...values, source: "manual" });
@@ -159,7 +167,7 @@ export default function DictionaryPage() {
     if (!deleteTarget) return;
     setDeleting(true);
     try {
-      await deleteDictionary(deleteTarget.term);
+      await deleteDictionary(deleteTarget.term, deleteTarget.context_type);
       toast.success(`"${deleteTarget.term}" 용어가 삭제되었습니다.`);
       setDeleteTarget(null);
       // 현재 페이지가 마지막 항목이었다면 이전 페이지로
@@ -244,6 +252,26 @@ export default function DictionaryPage() {
                 </SelectItem>
               )
             )}
+          </SelectContent>
+        </Select>
+
+        {/* 항목유형 필터 */}
+        <Select
+          value={contextTypeFilter}
+          onValueChange={(v) => handleContextTypeChange(v as FilterContextType)}
+        >
+          <SelectTrigger className="w-full sm:w-36" aria-label="항목유형 필터">
+            <SelectValue>
+              {contextTypeFilter === "all" ? "전체 항목유형" : contextTypeFilter}
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">전체 항목유형</SelectItem>
+            {(Object.keys(CONTEXT_TYPE_LABELS) as DictionaryContextType[]).map((value) => (
+              <SelectItem key={value} value={value}>
+                {value}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
 

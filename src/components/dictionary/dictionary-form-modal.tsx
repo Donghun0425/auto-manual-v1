@@ -17,22 +17,28 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import type { Dictionary, DictionaryCategory } from "@/types";
-import { CATEGORY_LABELS } from "./dummy-data";
+import type { Dictionary, DictionaryCategory, DictionaryContextType } from "@/types";
+import { CATEGORY_LABELS, CONTEXT_TYPE_LABELS } from "./dummy-data";
 
 const schema = z.object({
   term: z.string().min(1, "용어명을 입력하세요.").max(100, "100자 이내로 입력하세요."),
+  context_type: z.enum(["조회조건", "그리드", "처리조건", "인포영역"] as const),
   category: z.enum(["공통", "학사", "행정", "연구", "부속", "기타"] as const),
   description: z.string().min(1, "설명을 입력하세요.").max(500, "500자 이내로 입력하세요."),
 });
 
 type FormValues = z.infer<typeof schema>;
 
+interface OriginalKey {
+  term: string;
+  context_type: DictionaryContextType;
+}
+
 interface DictionaryFormModalProps {
   open: boolean;
   editItem: Dictionary | null;
   onClose: () => void;
-  onSubmit: (values: FormValues, id?: string) => void;
+  onSubmit: (values: FormValues, original?: OriginalKey) => void;
   submitting?: boolean;
 }
 
@@ -45,17 +51,18 @@ export function DictionaryFormModal({ open, editItem, onClose, onSubmit, submitt
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: { term: "", category: "공통", description: "" },
+    defaultValues: { term: "", context_type: "그리드" as DictionaryContextType, category: "공통", description: "" },
   });
 
   // 편집 모드일 때 폼 값 채우기
   useEffect(() => {
     if (editItem) {
       setValue("term", editItem.term);
+      setValue("context_type", editItem.context_type as DictionaryContextType);
       setValue("category", editItem.category as DictionaryCategory);
       setValue("description", editItem.description);
     } else {
-      reset({ term: "", category: "공통", description: "" });
+      reset({ term: "", context_type: "그리드", category: "공통", description: "" });
     }
   }, [editItem, setValue, reset]);
 
@@ -89,7 +96,10 @@ export function DictionaryFormModal({ open, editItem, onClose, onSubmit, submitt
         {/* 폼 */}
         <form
           onSubmit={handleSubmit((values) => {
-            onSubmit(values, editItem?.term);
+            onSubmit(
+              values,
+              editItem ? { term: editItem.term, context_type: editItem.context_type } : undefined
+            );
           })}
           noValidate
         >
@@ -111,6 +121,30 @@ export function DictionaryFormModal({ open, editItem, onClose, onSubmit, submitt
                   {errors.term.message}
                 </p>
               )}
+            </div>
+
+            {/* 항목유형 */}
+            <div className="space-y-1.5">
+              <Label htmlFor="context_type" className="text-sm">
+                항목유형 <span className="text-destructive">*</span>
+              </Label>
+              <Select
+                defaultValue={editItem?.context_type ?? "그리드"}
+                onValueChange={(v) => setValue("context_type", v as DictionaryContextType)}
+              >
+                <SelectTrigger id="context_type" aria-label="항목유형 선택">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.entries(CONTEXT_TYPE_LABELS) as [DictionaryContextType, string][]).map(
+                    ([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    )
+                  )}
+                </SelectContent>
+              </Select>
             </div>
 
             {/* 카테고리 */}

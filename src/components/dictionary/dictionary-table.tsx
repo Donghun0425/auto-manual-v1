@@ -5,8 +5,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import type { Dictionary, DictionaryCategory } from "@/types";
-import { CATEGORY_LABELS, CATEGORY_COLORS } from "./dummy-data";
+import type { Dictionary, DictionaryCategory, DictionaryContextType } from "@/types";
+import { CATEGORY_LABELS, CATEGORY_COLORS, CONTEXT_TYPE_LABELS } from "./dummy-data";
 
 interface DictionaryTableProps {
   items: Dictionary[];
@@ -21,6 +21,7 @@ export function DictionaryTable({ items, onEdit, onDelete }: DictionaryTableProp
         <thead>
           <tr className="border-b bg-muted/50">
             <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap w-36">용어명</th>
+            <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap w-24">항목유형</th>
             <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap w-28">카테고리</th>
             <th className="text-left px-4 py-3 font-medium text-muted-foreground">설명</th>
             <th className="text-left px-4 py-3 font-medium text-muted-foreground whitespace-nowrap w-24">출처</th>
@@ -31,7 +32,7 @@ export function DictionaryTable({ items, onEdit, onDelete }: DictionaryTableProp
         <tbody>
           {items.map((item, index) => (
             <tr
-              key={item.term}
+              key={`${item.term}_${item.context_type}`}
               className={cn(
                 "border-b last:border-0 transition-colors hover:bg-muted/30",
                 index % 2 === 1 && "bg-muted/10"
@@ -42,6 +43,13 @@ export function DictionaryTable({ items, onEdit, onDelete }: DictionaryTableProp
                 <code className="font-mono text-xs font-medium bg-muted px-1.5 py-0.5 rounded">
                   {item.term}
                 </code>
+              </td>
+
+              {/* 항목유형 */}
+              <td className="px-4 py-3">
+                <span className="inline-block text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                  {CONTEXT_TYPE_LABELS[item.context_type as DictionaryContextType] ?? item.context_type}
+                </span>
               </td>
 
               {/* 카테고리 */}
