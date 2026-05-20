@@ -35,13 +35,14 @@ export function renderManual(
   options: RenderOptions
 ): RenderResult {
   const sections = options.sections ?? DEFAULT_SECTIONS;
+  const formats = options.formats ?? [];
   const result: RenderResult = {};
 
-  if (options.formats.includes("html")) {
+  if (formats.includes("html")) {
     result.htmlContent = renderHtml(parseResult, sections);
   }
 
-  if (options.formats.includes("md")) {
+  if (formats.includes("md")) {
     result.markdownContent = renderMarkdown(parseResult, sections);
   }
 
