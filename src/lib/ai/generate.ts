@@ -20,8 +20,7 @@ import {
   buildUsagePrompt,
   buildNotesPrompt,
 } from "./prompts";
-import { getDescriptionWithDictionary } from "./dictionary-ai";
-import { insertDictionary } from "@/lib/supabase/queries/dictionary";
+import { findDictionaryByTerms, upsertDictionary } from "@/lib/supabase/queries/dictionary";
 
 export interface GenerateFileOptions {
   filePath: string;
@@ -31,9 +30,12 @@ export interface GenerateFileOptions {
   onProgress?: (step: string) => void;
 }
 
+/** 배치 AI 호출 시 최대 컬럼/컨트롤 수 (초과 시 분할) */
+const BATCH_CHUNK_SIZE = 15;
+
 /**
  * 파일명 앞글자로 카테고리 판별
- * c*_ → 공통, u*_ → 학사, a*_ → 행정, 그 외 → 기타
+ * c* → 공통, u* → 학사, a* → 행정, 그 외 → 기타 (대소문자 무시)
  */
 function getCategoryFromFileName(filePath: string): "공통" | "학사" | "행정" | "기타" {
   const fileName = filePath.split("/").pop() ?? filePath;
@@ -112,39 +114,32 @@ async function enrichGridDescriptions(
     const needDesc = grid.columns.filter((c) => !c.description);
     if (needDesc.length === 0) continue;
 
+    // 사전 우선 조회 (사전 연동 모드일 때만) — IN 절 1회 일괄 조회
+    let toProcess = needDesc;
     if (useDictionary) {
-      // 사전 우선 조회: headerText로 검색
-      const remaining: GridColumnInfo[] = [];
-      for (const col of needDesc) {
-        const result = await getDescriptionWithDictionary(
-          col.headerText,
-          category,
-          buildGridColumnPrompt(parseResult, grid, [col]),
-          settings,
-          { skipInsert: true }
-        );
-        if (result.fromDictionary) {
-          col.description = result.description;
-        } else {
-          remaining.push(col);
-        }
-        usage = addUsage(usage, result.usage);
-      }
-      // 나머지를 일괄 AI 호출 후 Supabase에 자동 INSERT
-      if (remaining.length > 0) {
-        const batchUsage = await batchGridColumnAi(parseResult, grid, remaining, settings);
-        usage = addUsage(usage, batchUsage);
-        // AI 생성 결과를 단어사전에 저장
-        for (const col of remaining) {
-          if (col.description) {
-            insertDictionary({ term: col.headerText, category, description: col.description, source: "ai" }).catch(() => {});
-          }
-        }
-      }
-    } else {
-      // 사전 미사용: 일괄 AI 호출
-      const batchUsage = await batchGridColumnAi(parseResult, grid, needDesc, settings);
+      const terms = needDesc.map((c) => c.headerText);
+      const dictMap = await findDictionaryByTerms(terms);
+      toProcess = needDesc.filter((col) => {
+        const found = dictMap.get(col.headerText.trim());
+        if (found) { col.description = found; return false; }
+        return true;
+      });
+    }
+
+    if (toProcess.length === 0) continue;
+
+    // 청크 단위로 batch AI 호출
+    for (let i = 0; i < toProcess.length; i += BATCH_CHUNK_SIZE) {
+      const chunk = toProcess.slice(i, i + BATCH_CHUNK_SIZE);
+      const batchUsage = await batchGridColumnAi(parseResult, grid, chunk, settings);
       usage = addUsage(usage, batchUsage);
+    }
+
+    // AI 생성 결과를 단어사전에 저장 (term PK — 충돌 시 덮어쓰기)
+    for (const col of toProcess) {
+      if (col.description) {
+        upsertDictionary({ term: col.headerText, category, description: col.description, source: "ai" }).catch(() => {});
+      }
     }
   }
   return usage;
@@ -197,36 +192,32 @@ async function enrichConditionDescriptions(
     const needDesc = group.controls.filter((c) => !c.description);
     if (needDesc.length === 0) continue;
 
+    // 사전 우선 조회 — IN 절 1회 일괄 조회
+    let toProcess = needDesc;
     if (useDictionary) {
-      const remaining: ConditionControlInfo[] = [];
-      for (const ctrl of needDesc) {
-        const result = await getDescriptionWithDictionary(
-          ctrl.labelText,
-          category,
-          buildConditionControlPrompt(parseResult, group.groupType, [ctrl]),
-          settings,
-          { skipInsert: true }
-        );
-        if (result.fromDictionary) {
-          ctrl.description = result.description;
-        } else {
-          remaining.push(ctrl);
-        }
-        usage = addUsage(usage, result.usage);
-      }
-      if (remaining.length > 0) {
-        const batchUsage = await batchConditionAi(parseResult, group.groupType, remaining, settings);
-        usage = addUsage(usage, batchUsage);
-        // AI 생성 결과를 단어사전에 저장
-        for (const ctrl of remaining) {
-          if (ctrl.description) {
-            insertDictionary({ term: ctrl.labelText, category, description: ctrl.description, source: "ai" }).catch(() => {});
-          }
-        }
-      }
-    } else {
-      const batchUsage = await batchConditionAi(parseResult, group.groupType, needDesc, settings);
+      const terms = needDesc.map((c) => c.labelText);
+      const dictMap = await findDictionaryByTerms(terms);
+      toProcess = needDesc.filter((ctrl) => {
+        const found = dictMap.get(ctrl.labelText.trim());
+        if (found) { ctrl.description = found; return false; }
+        return true;
+      });
+    }
+
+    if (toProcess.length === 0) continue;
+
+    // 청크 단위로 batch AI 호출
+    for (let i = 0; i < toProcess.length; i += BATCH_CHUNK_SIZE) {
+      const chunk = toProcess.slice(i, i + BATCH_CHUNK_SIZE);
+      const batchUsage = await batchConditionAi(parseResult, group.groupType, chunk, settings);
       usage = addUsage(usage, batchUsage);
+    }
+
+    // AI 생성 결과를 단어사전에 저장 (term PK — 충돌 시 덮어쓰기)
+    for (const ctrl of toProcess) {
+      if (ctrl.description) {
+        upsertDictionary({ term: ctrl.labelText, category, description: ctrl.description, source: "ai" }).catch(() => {});
+      }
     }
   }
   return usage;
