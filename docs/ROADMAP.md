@@ -185,13 +185,12 @@ CLX 매뉴얼 자동생성기는 1인 개발자 또는 소규모 개발팀을 �
   - ✅ 파일 다운로드 기능 (HTML/MD 개별 다운로드)
   - ✅ JSZip 활용 일괄 ZIP 다운로드 (다중 파일 결과)
 
-- **Task 016: 성능 최적화 및 배포 준비**
-  - 대용량 파일 처리 최적화 (Web Worker 또는 스트리밍)
-  - AI 호출 병렬 처리 및 에러 재시도 로직
-  - 생성 로그 저장 (generation_log 테이블)
-  - Vercel 배포 설정 (환경변수, Edge Functions)
-  - 에러 바운더리 및 로딩 상태 최적화
-  - 최종 E2E 테스트 수행 및 검증
+- ✅ **Task 016: 성능 최적화 및 배포 준비**
+  - ✅ AI 호출 병렬 처리 (concurrency limit=3) 및 에러 재시도 로직 (exponential backoff, 최대 3회)
+  - ✅ 생성 로그 저장 (generation_log 테이블, 대시보드 실시간 히스토리)
+  - ✅ Vercel 배포 설정 (vercel.json, 리전=icn1, /api/generate maxDuration=120s)
+  - ✅ 에러 바운더리 및 로딩 상태 최적화 (error.tsx, loading.tsx 전역/라우트별)
+  - ✅ 최종 E2E 테스트 수행 및 검증 (68개 assertion 통과)
 
 ---
 

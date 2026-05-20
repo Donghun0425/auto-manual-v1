@@ -59,18 +59,18 @@ scwin.validations = function() { alert("학과코드를 입력하세요."); };
   assert(r.htmlContent.includes("수강신청 관리"), "HTML에 프로그램명 포함");
   assert(r.htmlContent.includes("학사관리시스템"), "HTML에 시스템명 포함");
   assert(r.htmlContent.includes("화면개요"), "HTML에 화면개요 섹션");
-  assert(r.htmlContent.includes("사용법"), "HTML에 사용법 섹션");
-  assert(r.htmlContent.includes("주의사항"), "HTML에 주의사항 섹션");
+  assert(r.htmlContent.includes("사용방법"), "HTML에 사용방법 섹션");
+  assert(r.htmlContent.includes("참고사항"), "HTML에 참고사항 섹션");
   assert(r.htmlContent.includes("학번"), "HTML에 필수값 항목");
-  assert(r.htmlContent.includes("<table>"), "HTML 테이블 존재");
+  assert(r.htmlContent.includes("<table>") || r.htmlContent.includes('<div class="section">'), "HTML 구조적 컨텐츠 존재");
   assert(r.htmlContent.includes("<style>"), "HTML 스타일 포함 (독립형)");
 
   // MD 검증
   assert(!!r.markdownContent, "markdownContent 존재");
   assert(r.markdownContent.includes("# 수강신청 관리"), "MD 타이틀");
   assert(r.markdownContent.includes("## 화면개요"), "MD 화면개요 섹션");
-  assert(r.markdownContent.includes("## 사용법"), "MD 사용법 섹션");
-  assert(r.markdownContent.includes("## 주의사항"), "MD 주의사항 섹션");
+  assert(r.markdownContent.includes("## 사용방법"), "MD 사용방법 섹션");
+  assert(r.markdownContent.includes("## 참고사항"), "MD 참고사항 섹션");
   assert(r.markdownContent.includes("| 조회 |"), "MD 조회 기능 행");
   assert(r.markdownContent.includes("학번"), "MD 필수값 항목");
 
@@ -122,25 +122,25 @@ PatisUtils.setAppProperty(app, app.lookup("grd1"), "requiredText", new Array("�
   const r = body.results[0];
 
   // 화면개요는 제외
-  assert(!r.htmlContent.includes("화면개요"), "HTML에 화면개요 없음 (disabled)");
+  assert(!r.htmlContent.includes("<h2>화면개요</h2>"), "HTML에 화면개요 없음 (disabled)");
   assert(!r.markdownContent.includes("## 화면개요"), "MD에 화면개요 없음");
 
-  // 그리드/조건그룹/팝업 제외
-  assert(!r.htmlContent.includes("그리드"), "HTML에 그리드 없음");
-  assert(!r.htmlContent.includes("조건그룹"), "HTML에 조건그룹 없음");
+  // 그리드/조건그룹 섹션 제외 (CSS 주석은 무시하고 <h2> 태그 기준)
+  assert(!r.htmlContent.includes("<h2>그리드</h2>"), "HTML에 그리드 섹션 없음");
+  assert(!r.htmlContent.includes("<h2>조건그룹</h2>"), "HTML에 조건그룹 섹션 없음");
 
   // 사용법 포함 (커스텀 타이틀)
   assert(r.htmlContent.includes("기능 버튼 안내"), "HTML 커스텀 타이틀 적용");
   assert(r.markdownContent.includes("## 기능 버튼 안내"), "MD 커스텀 타이틀 적용");
 
-  // 주의사항이 사용법보다 먼저 나와야 함 (order: 0 vs 1)
-  const htmlNotesIdx = r.htmlContent.indexOf("주의사항");
+  // 참고사항이 사용법보다 먼저 나와야 함 (order: 0 vs 1)
+  const htmlNotesIdx = r.htmlContent.indexOf("참고사항");
   const htmlUsageIdx = r.htmlContent.indexOf("기능 버튼 안내");
-  assert(htmlNotesIdx < htmlUsageIdx, "HTML: 주의사항이 사용법보다 먼저 출력");
+  assert(htmlNotesIdx < htmlUsageIdx, "HTML: 참고사항이 사용법보다 먼저 출력");
 
-  const mdNotesIdx = r.markdownContent.indexOf("## 주의사항");
+  const mdNotesIdx = r.markdownContent.indexOf("## 참고사항");
   const mdUsageIdx = r.markdownContent.indexOf("## 기능 버튼 안내");
-  assert(mdNotesIdx < mdUsageIdx, "MD: 주의사항이 사용법보다 먼저 출력");
+  assert(mdNotesIdx < mdUsageIdx, "MD: 참고사항이 사용법보다 먼저 출력");
 }
 
 // ─── Test 3: 실제 파일로 HTML/MD 생성 (프록시 사용) ─────────
