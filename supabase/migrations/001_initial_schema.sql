@@ -4,27 +4,30 @@
 -- ============================================================
 
 -- ── 1. 단어사전 (dictionary) ─────────────────────────────────
--- term 을 PK 로 사용 — 동일 단어 중복 방지, 별도 id 컬럼 불필요
+-- 복합 PK (term, context_type): 같은 용어라도 화면 항목 유형별 다른 설명 저장
+-- context_type: search(조회조건) | grid(그리드) | condition(처리조건) | info(인포영역)
 CREATE TABLE IF NOT EXISTS public.dictionary (
-  term        TEXT PRIMARY KEY,
-  category    TEXT NOT NULL CHECK (
-                category IN ('공통','학사','행정','연구','부속','기타')
-              ),
-  description TEXT NOT NULL,
-  source      TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual','ai')),
-  user_id     UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  term         TEXT NOT NULL,
+  context_type TEXT NOT NULL CHECK (context_type IN ('조회조건','그리드','처리조건','인포영역')),
+  category     TEXT NOT NULL CHECK (
+                 category IN ('공통','학사','행정','연구','부속','기타')
+               ),
+  description  TEXT NOT NULL,
+  source       TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual','ai')),
+  user_id      UUID REFERENCES auth.users(id) ON DELETE CASCADE,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (term, context_type)
 );
 
--- term 은 PK 이므로 별도 인덱스 불필요 (PK 가 자동 생성)
 CREATE INDEX IF NOT EXISTS idx_dictionary_category ON public.dictionary (category);
 CREATE INDEX IF NOT EXISTS idx_dictionary_user_id  ON public.dictionary (user_id);
+CREATE INDEX IF NOT EXISTS idx_dictionary_context  ON public.dictionary (context_type);
 
 -- 검색 속도를 위한 Full-Text Search 인덱스
 CREATE INDEX IF NOT EXISTS idx_dictionary_fts
   ON public.dictionary
-  USING gin(to_tsvector('simple', term || ' ' || description));
+  USING gin(to_tsvector('simple', term || ' ' || context_type || ' ' || description));
 
 -- updated_at 자동 갱신 트리거
 CREATE OR REPLACE FUNCTION public.set_updated_at()

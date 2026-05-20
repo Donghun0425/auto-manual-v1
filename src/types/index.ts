@@ -20,6 +20,7 @@ export type {
   DictionaryInsert,
   DictionaryUpdate,
   DictionaryCategory,
+  DictionaryContextType,
   DictionarySource,
   LayoutTemplate,
   LayoutTemplateInsert,

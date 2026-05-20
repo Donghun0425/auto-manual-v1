@@ -2,9 +2,10 @@
  * Supabase 데이터베이스 스키마 타입 정의
  */
 
-/** 단어사전 테이블 — PK: term */
+/** 단어사전 테이블 — PK: (term, context_type) */
 export interface Dictionary {
   term: string;
+  context_type: DictionaryContextType;
   category: DictionaryCategory;
   description: string;
   source: DictionarySource;
@@ -16,15 +17,15 @@ export interface Dictionary {
 /** 단어사전 등록 입력 */
 export interface DictionaryInsert {
   term: string;
+  context_type: DictionaryContextType;
   category: DictionaryCategory;
   description: string;
   source?: DictionarySource;
   user_id?: string | null;
 }
 
-/** 단어사전 수정 입력 */
+/** 단어사전 수정 입력 (PK 필드 term·context_type 제외) */
 export interface DictionaryUpdate {
-  term?: string;
   category?: DictionaryCategory;
   description?: string;
   source?: DictionarySource;
@@ -42,7 +43,8 @@ export type DictionaryCategory =
 
 /** 단어사전 등록 출처 */
 export type DictionarySource = "manual" | "ai";
-
+/** 단어사전 항목 유형 (조회조건 | 그리드 | 처리조건 | 인포영역) */
+export type DictionaryContextType = "조회조건" | "그리드" | "처리조건" | "인포영역";
 /** 레이아웃 템플릿 테이블 */
 export interface LayoutTemplate {
   id: string;
