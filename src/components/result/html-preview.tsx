@@ -4,9 +4,18 @@ import { useRef, useEffect } from "react";
 
 interface HtmlPreviewProps {
   htmlContent: string;
+  screenImage?: string;
 }
 
-export function HtmlPreview({ htmlContent }: HtmlPreviewProps) {
+function injectImageIntoHtml(html: string, dataUrl: string): string {
+  const css = `.screen-image{margin:0 0 20px;text-align:center;}.screen-image img{max-width:100%;border:1px solid #e4e4e7;border-radius:6px;}`;
+  const imgTag = `<div class="screen-image"><img src="${dataUrl}" alt="화면 이미지" /></div>`;
+  return html
+    .replace(/<\/style>/, `${css}\n</style>`)
+    .replace(/<\/h1>/, `</h1>\n${imgTag}`);
+}
+
+export function HtmlPreview({ htmlContent, screenImage }: HtmlPreviewProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
@@ -14,10 +23,11 @@ export function HtmlPreview({ htmlContent }: HtmlPreviewProps) {
     if (!iframe) return;
     const doc = iframe.contentDocument ?? iframe.contentWindow?.document;
     if (!doc) return;
+    const content = screenImage ? injectImageIntoHtml(htmlContent, screenImage) : htmlContent;
     doc.open();
-    doc.write(htmlContent);
+    doc.write(content);
     doc.close();
-  }, [htmlContent]);
+  }, [htmlContent, screenImage]);
 
   return (
     <iframe
