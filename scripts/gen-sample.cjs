@@ -1,0 +1,157 @@
+// 새 디자인 샘플 HTML 생성 스크립트
+const fs = require("fs");
+
+const html = `<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>학생등록관리 - 사용자 매뉴얼 (새 디자인 샘플)</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Noto Sans KR', -apple-system, 'Segoe UI', 'Malgun Gothic', sans-serif;
+    max-width: 860px; margin: 0 auto; padding: 32px 20px 64px;
+    line-height: 1.7; color: #1e293b; font-size: 13px; background: #f1f5f9;
+  }
+  .manual { background: #ffffff; border-radius: 16px; padding: 40px 44px; box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 8px 32px rgba(0,0,0,0.05); }
+  .manual-header { padding-bottom: 24px; margin-bottom: 28px; border-bottom: 1.5px solid #e2e8f0; }
+  h1 { font-size: 22px; font-weight: 700; color: #0f172a; letter-spacing: -0.04em; line-height: 1.3; margin-bottom: 10px; }
+  .manual-meta { display: flex; flex-wrap: wrap; gap: 6px; }
+  .meta-tag { display: inline-flex; align-items: center; font-size: 11px; color: #64748b; background: #f8fafc; border: 1px solid #e2e8f0; padding: 3px 10px; border-radius: 20px; font-weight: 500; }
+  h2 { display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 700; color: #0f172a; margin-top: 32px; margin-bottom: 12px; letter-spacing: -0.02em; }
+  h2::before { content: ''; display: inline-block; width: 4px; height: 16px; background: linear-gradient(180deg, #3b82f6 0%, #6366f1 100%); border-radius: 2px; flex-shrink: 0; }
+  .section { padding: 16px 20px; border: 1px solid #e2e8f0; border-radius: 10px; background: #ffffff; margin-bottom: 8px; }
+  .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 2px 24px; }
+  .info-row { display: flex; align-items: baseline; gap: 10px; padding: 5px 0; border-bottom: 1px solid #f8fafc; font-size: 12.5px; }
+  .info-row:last-child { border-bottom: none; }
+  .info-row.full-width { grid-column: span 2; }
+  .info-label { font-size: 10.5px; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; min-width: 64px; flex-shrink: 0; }
+  .info-value { color: #1e293b; font-weight: 500; }
+  .step { margin: 5px 0 5px 14px; color: #475569; font-size: 12.5px; line-height: 1.65; }
+  .note-warn { color: #92400e; background: #fffbeb; border-left: 3px solid #f59e0b; padding: 5px 12px; margin: 5px 0 5px 14px; border-radius: 0 8px 8px 0; font-size: 12.5px; }
+  .note-req { color: #14532d; background: #f0fdf4; border-left: 3px solid #22c55e; padding: 5px 12px; margin: 5px 0 5px 14px; border-radius: 0 8px 8px 0; font-size: 12.5px; font-weight: 500; }
+  .bold-tag { display: flex; align-items: center; gap: 7px; font-weight: 700; color: #0f172a; font-size: 12.5px; margin-top: 20px; margin-bottom: 6px; padding-bottom: 6px; border-bottom: 1px solid #f1f5f9; }
+  .bold-tag::before { content: ''; display: inline-block; width: 7px; height: 7px; min-width: 7px; background: #3b82f6; border-radius: 50%; }
+  .required { display: inline-flex; align-items: center; background: #eff6ff; color: #1d4ed8; padding: 2px 10px; border-radius: 20px; margin: 2px 3px; font-size: 11px; font-weight: 500; border: 1px solid #bfdbfe; }
+  table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 12px; }
+  thead tr { background: #f8fafc; border-bottom: 1.5px solid #cbd5e1; }
+  th { padding: 9px 14px; text-align: left; font-weight: 600; color: #64748b; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; }
+  td { padding: 9px 14px; border-bottom: 1px solid #f1f5f9; color: #334155; vertical-align: middle; }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: #f8fafc; }
+  .popup-url { font-family: 'Consolas','Menlo',monospace; color: #3b82f6; font-size: 11px; background: #eff6ff; padding: 1px 7px; border-radius: 5px; border: 1px solid #bfdbfe; }
+  h3 { font-size: 12.5px; font-weight: 600; color: #334155; margin-bottom: 10px; }
+  .group-id { font-size: 10.5px; color: #94a3b8; font-weight: 400; font-family: 'Consolas','Menlo',monospace; margin-left: 6px; }
+  .badge { display: inline-flex; align-items: center; background: #f1f5f9; color: #475569; padding: 2px 9px; border-radius: 20px; margin: 1px 3px; font-size: 10.5px; font-weight: 500; border: 1px solid #e2e8f0; }
+  code { font-family: 'Consolas','Menlo',monospace; font-size: 11px; color: #475569; background: #f1f5f9; padding: 1px 6px; border-radius: 5px; border: 1px solid #e2e8f0; }
+  ul { padding-left: 20px; margin: 8px 0; }
+  li { margin-bottom: 5px; font-size: 12.5px; color: #475569; }
+  .footer { margin-top: 40px; padding-top: 16px; border-top: 1px solid #e2e8f0; font-size: 11px; color: #94a3b8; text-align: center; }
+</style>
+</head>
+<body>
+<div class="manual">
+  <div class="manual-header">
+    <h1>학생등록관리</h1>
+    <div class="manual-meta">
+      <span class="meta-tag">학사행정</span>
+      <span class="meta-tag">학생관리</span>
+      <span class="meta-tag">SAM_학생등록관리.clx.js</span>
+    </div>
+  </div>
+  <h2>화면개요</h2>
+  <div class="section">
+    <div class="info-grid">
+      <div class="info-row"><span class="info-label">시스템명</span><span class="info-value">학사행정</span></div>
+      <div class="info-row"><span class="info-label">부시스템</span><span class="info-value">학생관리</span></div>
+      <div class="info-row"><span class="info-label">프로그램</span><span class="info-value">학생등록관리</span></div>
+      <div class="info-row"><span class="info-label">작성자</span><span class="info-value">홍길동</span></div>
+      <div class="info-row full-width"><span class="info-label">설명</span><span class="info-value">학생의 기본정보를 등록·수정·삭제하는 화면입니다.</span></div>
+    </div>
+  </div>
+  <h2>사용방법</h2>
+  <div class="section">
+    <span class="bold-tag">학생등록관리 조회</span>
+    <p class="step">Step1. 조회조건(학년도, 학기, 학생명)을 입력한다.</p>
+    <p class="step">Step2. 화면 상단의 '조회' 버튼을 클릭한다.</p>
+    <span class="bold-tag">학생등록관리 신규</span>
+    <p class="step">Step1. 화면 상단의 '신규' 버튼을 클릭한다.</p>
+    <p class="step">Step2. 필수 항목(학번, 학생명)을 입력한다.</p>
+    <span class="bold-tag">학생등록관리 저장</span>
+    <p class="step">Step1. 수정하고자 하는 자료를 입력 또는 선택한다.</p>
+    <p class="step">Step2. 화면 상단의 '저장' 버튼을 클릭하여 저장처리를 진행한다.</p>
+    <p class="step note-req">📌 필수 입력항목: 학생명, 학번</p>
+    <p class="step note-warn">⚠ 학생명을 입력하세요.</p>
+    <p class="step note-warn">⚠ 학번을 입력하세요.</p>
+    <span class="bold-tag">학생등록관리 삭제</span>
+    <p class="step">Step1. 삭제하고자 하는 자료를 선택한다.</p>
+    <p class="step">Step2. 화면 상단의 '삭제' 버튼을 클릭하여 삭제처리를 진행한다.</p>
+    <span class="bold-tag">엑셀다운로드</span>
+    <p class="step">Step1. '엑셀다운로드' 버튼을 클릭하여 현재 목록을 엑셀 파일로 내보낸다.</p>
+  </div>
+  <h2>항목</h2>
+  <div class="section">
+    <h3>조회조건 <span class="group-id">(SEARCHGROUP01)</span></h3>
+    <table>
+      <thead><tr><th style="width:20%">항목명</th><th>설명</th><th style="width:18%">타입</th><th style="width:20%">용도</th></tr></thead>
+      <tbody>
+        <tr><td>학년도</td><td>조회할 학년도를 선택합니다</td><td><code>PatisCombo</code></td><td>입력 또는 선택</td></tr>
+        <tr><td>학기</td><td>조회할 학기를 선택합니다</td><td><code>PatisCombo</code></td><td>입력 또는 선택</td></tr>
+        <tr><td>학생명</td><td>학생명으로 검색합니다 (부분 검색 가능)</td><td><code>InputBox</code></td><td>입력 또는 선택</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="section">
+    <h3>학생 상세정보 <span class="group-id">(INFOGROUP01)</span></h3>
+    <table>
+      <thead><tr><th style="width:20%">항목명</th><th>설명</th><th style="width:18%">타입</th><th style="width:20%">용도</th></tr></thead>
+      <tbody>
+        <tr><td>학번</td><td></td><td><code>InputBox</code></td><td>표시</td></tr>
+        <tr><td>학생명</td><td></td><td><code>InputBox</code></td><td>입력 또는 선택</td></tr>
+        <tr><td>학과</td><td></td><td><code>PatisCombo</code></td><td>입력 또는 선택</td></tr>
+        <tr><td>생년월일</td><td></td><td><code>InputBox</code></td><td>입력 또는 선택</td></tr>
+        <tr><td>재적상태</td><td></td><td><code>PatisCombo</code></td><td>입력 또는 선택</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="section">
+    <h3>학생목록 <span class="group-id">(DG_GRID01)</span></h3>
+    <p style="margin:4px 0 10px;"><span class="badge">체크</span><span class="badge">행번호</span><span class="badge">정렬</span></p>
+    <table>
+      <thead><tr><th style="width:20%">항목명</th><th>설명</th><th style="width:18%">타입</th><th style="width:20%">용도</th></tr></thead>
+      <tbody>
+        <tr><td>학번</td><td></td><td><code>Output</code></td><td>표시</td></tr>
+        <tr><td>학생명</td><td></td><td><code>Output</code></td><td>표시</td></tr>
+        <tr><td>학과명</td><td></td><td><code>Output</code></td><td>표시</td></tr>
+        <tr><td>학년</td><td></td><td><code>Output</code></td><td>표시</td></tr>
+        <tr><td>재적상태</td><td></td><td><code>Output</code></td><td>표시</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <h2>참고사항</h2>
+  <div class="section">
+    <span class="bold-tag">📌 필수 입력항목</span>
+    <p class="step note-req">학생명, 학번</p>
+    <span class="bold-tag">⚠ 기타 주의사항</span>
+    <p class="step note-warn">• 날짜 형식이 올바르지 않습니다. (YYYYMMDD)</p>
+  </div>
+  <h2>팝업</h2>
+  <div class="section">
+    <table>
+      <thead><tr><th style="width:20%">팝업 ID</th><th>URL</th><th style="width:18%">크기</th></tr></thead>
+      <tbody>
+        <tr><td><code>pop_dept</code></td><td><span class="popup-url">common/pop_dept</span></td><td>600 × 500</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="footer">
+    <p>생성일시: 2026. 5. 20. 오후 3:00:00 | CLX 매뉴얼 자동생성기</p>
+  </div>
+</div>
+</body>
+</html>`;
+
+fs.writeFileSync("./public/manual-sample.html", html, "utf8");
+console.log("샘플 파일 생성 완료: public/manual-sample.html");
+
