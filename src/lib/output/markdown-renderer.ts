@@ -59,7 +59,7 @@ function renderOverview(data: ClxParseResult, customTitle?: string): string {
   const title = customTitle || "화면개요";
   const lines: string[] = [`## ${title}\n`];
 
-  if (o.description) lines.push(`> ${o.description}\n`);
+  if (o.description) lines.push(`> ${o.description.split("\n").join("\n> ")}\n`);
 
   const meta: string[] = [];
   if (o.systemName) meta.push(`**시스템:** ${o.systemName}`);

@@ -84,7 +84,7 @@ function renderOverview(data: ClxParseResult, customTitle?: string): string {
 
   const title = customTitle || "화면개요";
   const descRow = o.description
-    ? `<div class="info-row full-width"><span class="info-label">설명</span><span class="info-value">${escapeHtml(o.description)}</span></div>`
+    ? `<div class="info-row full-width"><span class="info-label">설명</span><span class="info-value" style="white-space:pre-line">${escapeHtml(o.description)}</span></div>`
     : "";
   const authorRow = o.author
     ? `<div class="info-row"><span class="info-label">작성자</span><span class="info-value">${escapeHtml(o.author)}</span></div>`
