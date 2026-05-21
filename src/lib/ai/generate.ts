@@ -314,14 +314,12 @@ async function enrichButtonDescriptions(
   return addUsage(usage, response.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });
 }
 
-/** 화면 개요 보강 */
+/** 화면 개요 보강 — 항상 AI가 생성하여 덮어씀 */
 async function enrichOverview(
   parseResult: ClxParseResult,
   settings: AiSettings,
   usage: AiUsage
 ): Promise<AiUsage> {
-  if (parseResult.overview.description) return usage;
-
   const messages = buildOverviewPrompt(parseResult);
   const response = await callAi(settings, messages);
   const text = extractContent(response);

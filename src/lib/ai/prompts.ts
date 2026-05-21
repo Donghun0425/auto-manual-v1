@@ -165,7 +165,7 @@ export function buildOverviewPrompt(parseResult: ClxParseResult): AiMessage[] {
     { role: "system", content: SYSTEM_PROMPT },
     {
       role: "user",
-      content: `다음 정보를 바탕으로 화면의 용도를 1~2문장으로 간결하게 설명해주세요.
+      content: `다음 정보를 바탕으로 이 화면이 무엇을 하는 화면인지 비개발자(학생, 교직원, 일반 사용자)가 바로 이해할 수 있도록 자세하게 설명해주세요.
 
 - 화면명: ${parseResult.overview.programName}
 - 시스템: ${parseResult.overview.systemName} > ${parseResult.overview.subSystem}
@@ -174,7 +174,11 @@ export function buildOverviewPrompt(parseResult: ClxParseResult): AiMessage[] {
 - 조건그룹 수: ${condCount}개
 - 탭 페이지: ${parseResult.tabPages.length}개
 
-설명만 출력하세요. 다른 텍스트는 포함하지 마세요.`,
+작성 규칙:
+- 이 화면의 목적, 주요 기능, 사용 대상을 포함하여 설명하세요.
+- 3줄 이내로 작성하되, 각 줄은 줄바꿈(\n)으로 구분하세요.
+- 개발 용어(DB, 컬럼, 플래그 등) 없이 일반 사용자 눈높이로 작성하세요.
+- 설명 텍스트만 출력하세요. 다른 텍스트는 포함하지 마세요.`,
     },
   ];
 }
