@@ -64,8 +64,6 @@ function renderOverview(data: ClxParseResult, customTitle?: string): string {
   const meta: string[] = [];
   if (o.systemName) meta.push(`**시스템:** ${o.systemName}`);
   if (o.subSystem) meta.push(`**서브시스템:** ${o.subSystem}`);
-  if (o.author) meta.push(`**작성자:** ${o.author}`);
-  if (o.createDate) meta.push(`**작성일:** ${o.createDate}`);
   if (meta.length > 0) lines.push(meta.join(" | ") + "\n");
 
   return lines.join("\n");

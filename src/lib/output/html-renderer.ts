@@ -86,12 +86,6 @@ function renderOverview(data: ClxParseResult, customTitle?: string): string {
   const descRow = o.description
     ? `<div class="info-row full-width"><span class="info-label">설명</span><span class="info-value" style="white-space:pre-line">${escapeHtml(o.description)}</span></div>`
     : "";
-  const authorRow = o.author
-    ? `<div class="info-row"><span class="info-label">작성자</span><span class="info-value">${escapeHtml(o.author)}</span></div>`
-    : "";
-  const dateRow = o.createDate
-    ? `<div class="info-row"><span class="info-label">작성일</span><span class="info-value">${escapeHtml(o.createDate)}</span></div>`
-    : "";
 
   return `<h2>${escapeHtml(title)}</h2>
 <div class="section">
@@ -99,7 +93,7 @@ function renderOverview(data: ClxParseResult, customTitle?: string): string {
   <div class="info-row"><span class="info-label">시스템명</span><span class="info-value">${escapeHtml(o.systemName)}</span></div>
   <div class="info-row"><span class="info-label">부시스템</span><span class="info-value">${escapeHtml(o.subSystem)}</span></div>
   <div class="info-row"><span class="info-label">프로그램</span><span class="info-value">${escapeHtml(o.programName)}</span></div>
-  ${authorRow}${dateRow}${descRow}
+  ${descRow}
 </div>
 </div>`;
 }
