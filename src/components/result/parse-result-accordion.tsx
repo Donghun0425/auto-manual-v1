@@ -12,6 +12,7 @@ import {
   Info,
   Layers,
   MousePointer2,
+  Package,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
@@ -100,7 +101,7 @@ interface ParseResultAccordionProps {
 }
 
 export function ParseResultAccordion({ result }: ParseResultAccordionProps) {
-  const { overview, usage, notes, items, tabPages, popups } = result;
+  const { overview, usage, notes, items, tabPages, popups, usedUdcs } = result;
   const allExtButtons = [
     ...usage.menuTitleBar.extButtons,
     ...usage.titleBars.flatMap((tb) => tb.extButtons),
@@ -300,6 +301,22 @@ export function ParseResultAccordion({ result }: ParseResultAccordionProps) {
               <code key="uri" className="font-mono text-xs">{tp.appUri}</code>,
               tp.tabLabel || "-",
               tp.calledFrom,
+            ])}
+          />
+        )}
+      </Section>
+
+      {/* 사용 UDC */}
+      <Section id="udcs" icon={<Package className="h-4 w-4" />} title="사용 UDC" badge={usedUdcs.length}>
+        {usedUdcs.length === 0 ? (
+          <p className="text-sm text-muted-foreground">UDC 없음</p>
+        ) : (
+          <SimpleTable
+            headers={["UDC명", "전체 경로", "설명"]}
+            rows={usedUdcs.map((u) => [
+              <code key="sn" className="font-mono text-xs">{u.shortName}</code>,
+              <code key="qn" className="font-mono text-xs">{u.qualifiedName}</code>,
+              u.description || "-",
             ])}
           />
         )}

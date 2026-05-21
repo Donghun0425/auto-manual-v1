@@ -95,6 +95,10 @@ export const DUMMY_PARSE_RESULT: ManualResult = {
     popups: [
       { popupId: "pop_dept", popupUrl: "common/pop_dept", callbackFunction: "fn_deptCallback", width: 600, height: 500 },
     ],
+    usedUdcs: [
+      { shortName: "UcoYrSmstrCombo", qualifiedName: "udc.univ.UcoYrSmstrCombo", description: "년도/학기 콤보" },
+      { shortName: "PatisCombo", qualifiedName: "udc.common.PatisCombo", description: "공통코드 콤보" },
+    ],
   },
   htmlContent: `<!DOCTYPE html>
 <html lang="ko">
