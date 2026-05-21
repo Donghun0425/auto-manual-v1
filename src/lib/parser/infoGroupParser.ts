@@ -6,6 +6,7 @@
  * - 그룹 IIFE 내부의 T_D_ Output(항목명) + D_ 컨트롤(타입) 쌍을 추출한다.
  */
 import { ConditionControlInfo, InfoGroupInfo } from '@/types';
+import { normalizeLabel } from '@/lib/utils';
 
 /** 입력 컨트롤로 간주하는 타입 집합 */
 const INPUT_TYPES = new Set([
@@ -94,7 +95,7 @@ export function parseInfoGroups(content: string): InfoGroupInfo[] {
       // 선언 이후 200자 이내에서 varName.value = "..." 탐색
       const afterOutput = body.slice(om.index, om.index + 200);
       const valueM = new RegExp(`${oVarName}\\.value\\s*=\\s*"([^"]+)"`).exec(afterOutput);
-      outputMap.set(oVarName, { controlId, labelText: valueM ? valueM[1] : controlId });
+      outputMap.set(oVarName, { controlId, labelText: valueM ? normalizeLabel(valueM[1]) : controlId });
     }
 
     // ── Step 5: D_ 컨트롤 타입 맵 ───────────────────────────────────────
@@ -120,6 +121,15 @@ export function parseInfoGroups(content: string): InfoGroupInfo[] {
     for (const [, { controlId, labelText }] of outputMap) {
       // T_D_ABNM_L3 → D_ABNM_L3 (앞의 "T_" 제거)
       const dataCtrlId = controlId.slice(2);
+
+      // 의미없는 항목 제거
+      // 1) 구분자 라벨 (-,~,/ 등)
+      if (/^[~\-\/|·•]+$/.test(labelText.trim())) continue;
+      // 2) NOTHING 플레이스홀더
+      if (dataCtrlId.includes('NOTHING')) continue;
+      // 3) 라벨을 찾지 못해 controlId 자체가 라벨로 폴백된 경우
+      if (labelText === controlId || labelText === dataCtrlId) continue;
+
       const ctrlType = controlTypeMap.get(dataCtrlId) ?? 'InputBox';
       const isInput = INPUT_TYPES.has(ctrlType);
 

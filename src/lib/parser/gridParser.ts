@@ -6,6 +6,7 @@
  * - 그리드 헤더/detail 컬럼 정보 추출
  */
 import { GridInfo, GridColumnInfo } from '@/types';
+import { normalizeLabel } from '@/lib/utils';
 
 /** 정규식 특수문자 이스케이프 */
 function escapeRegex(str: string): string {
@@ -16,7 +17,7 @@ function escapeRegex(str: string): string {
  * ?ㅻ뜑 ?띿뒪??JS ?댁뒪耳?댄봽 ?쒗??\r\n ?? ??怨듬갚 移섑솚
  */
 function cleanHeaderText(text: string): string {
-  return text.replace(/\\r\\n|\\r|\\n/g, ' ').trim();
+  return normalizeLabel(text);
 }
 
 /**

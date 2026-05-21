@@ -13,6 +13,7 @@
  */
 import { ConditionGroupInfo, ConditionControlInfo } from '@/types';
 import { UDC_REGISTRY, UdcInfo } from './udcRegistry';
+import { normalizeLabel } from '@/lib/utils';
 
 /** 입력 컨트롤로 간주하지 않을 타입 키워드 */
 const SKIP_TYPES = new Set([
@@ -245,23 +246,23 @@ function parseBodyControls(body: string, fullContent: string): Array<{
     if (type === 'Output') {
       const valRe = new RegExp(`${varName}\\.value\\s*=\\s*"([^"]+)"`);
       const valM = valRe.exec(outerBody);
-      if (valM) labelValue = valM[1];
+      if (valM) labelValue = normalizeLabel(valM[1]);
     } else if (type === 'CheckBox') {
       const textRe = new RegExp(`${varName}\\.text\\s*=\\s*"([^"]+)"`);
       const textM = textRe.exec(outerBody);
       if (textM) {
-        labelValue = textM[1];
+        labelValue = normalizeLabel(textM[1]);
       } else {
         const lookupRe = new RegExp(
           `app\\.lookup\\("${controlId}"\\)\\.text\\s*=\\s*"([^"]+)"`,
         );
         const lookupM = lookupRe.exec(fullContent);
-        if (lookupM) labelValue = lookupM[1];
+        if (lookupM) labelValue = normalizeLabel(lookupM[1]);
       }
     } else if (isUdcType(fType) && !OUTPUT_LABEL_UDCS.has(type)) {
       const udcInfo = UDC_REGISTRY[type];
       const udcLabel = findUdcLabelFromFullContent(fullContent, controlId, udcInfo);
-      labelValue = udcLabel ?? type;
+      labelValue = udcLabel ?? '';
     }
 
     const isReadOnly = new RegExp(`${varName}\\.readOnly\\s*=\\s*true`).test(outerBody);
