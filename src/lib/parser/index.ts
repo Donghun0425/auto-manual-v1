@@ -2,7 +2,7 @@
  * 메인 파서 모듈
  * - 각 하위 파서를 통합하여 .clx.js 파일의 전체 분석 결과를 반환
  */
-import type { ClxParseResult, ExtButtonInfo, GridInfo } from "@/types";
+import type { ClxParseResult, ExtButtonInfo, GridInfo, UsedUdcInfo } from "@/types";
 import { parseHeader } from "./headerParser";
 import { parseMenuTitleBarCrud, parseTitleBarCrud, parseExtraButtons, extractPopupUrl } from "./crudParser";
 import { parseRequiredFields, parseValidations } from "./validationParser";
@@ -11,6 +11,7 @@ import { parseConditionGroups } from "./conditionGroupParser";
 import { parsePopups } from "./popupParser";
 import { parseEmbApps } from "./embAppParser";
 import { parseInfoGroups } from "./infoGroupParser";
+import { UDC_REGISTRY } from "./udcRegistry";
 
 /**
  * UcoBtchList 컨트롤의 타이틀을 추출한다.
@@ -49,6 +50,30 @@ const UCO_BTCH_LIST_GRID_COLUMNS: GridInfo["columns"] = [
   { columnName: "PRCR_ID", headerText: "처리자", description: "배치 실행 담당자 ID", controlType: "Output", purpose: "표시" },
   { columnName: "RMRK", headerText: "비고", description: "배치 처리 결과 메시지", controlType: "Output", purpose: "표시" },
 ];
+
+/**
+ * 파일에서 사용된 UDC를 추출한다.
+ * new udc.xxx.YYY("...") 패턴을 찾아 레지스트리에서 설명을 매칭.
+ */
+function parseUsedUdcs(content: string): UsedUdcInfo[] {
+  const re = /new\s+udc\.(\w+)\.(\w+)\s*\(/g;
+  const seen = new Set<string>();
+  const result: UsedUdcInfo[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(content)) !== null) {
+    const shortName = m[2];
+    if (seen.has(shortName)) continue;
+    seen.add(shortName);
+    const qualifiedName = `udc.${m[1]}.${shortName}`;
+    const info = UDC_REGISTRY[shortName];
+    result.push({
+      shortName,
+      qualifiedName,
+      description: info?.description ?? "",
+    });
+  }
+  return result.sort((a, b) => a.shortName.localeCompare(b.shortName));
+}
 
 /**
  * .clx.js 파일 내용을 분석하여 매뉴얼 생성에 필요한 정보를 추출
@@ -96,6 +121,7 @@ export function analyzeFile(filePath: string, content: string): ClxParseResult {
     },
     tabPages: parseEmbApps(content),
     popups: parsePopups(content),
+    usedUdcs: parseUsedUdcs(content),
   };
 }
 

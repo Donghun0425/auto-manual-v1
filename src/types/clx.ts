@@ -131,6 +131,18 @@ export interface ClxParseResult {
   };
   tabPages: TabPageInfo[];
   popups: PopupInfo[];
+  /** 파일에서 사용된 UDC 목록 */
+  usedUdcs: UsedUdcInfo[];
+}
+
+/** 사용된 UDC 정보 */
+export interface UsedUdcInfo {
+  /** UDC 단축명 (예: UcoYrSmstrCombo) */
+  shortName: string;
+  /** UDC 전체 식별자 (예: udc.univ.UcoYrSmstrCombo) */
+  qualifiedName: string;
+  /** UDC 설명 */
+  description: string;
 }
 
 /** 파싱 카테고리 타입 */
