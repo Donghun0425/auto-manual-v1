@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Search, Plus, Bot, User, Info, Loader2, AlertCircle } from "lucide-react";
+import { Search, Plus, Bot, User, Info, Loader2, AlertCircle, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { Container } from "@/components/layout/container";
 import { PageHeader } from "@/components/layout/page-header";
@@ -20,6 +20,7 @@ import {
 import { DictionaryTable, Pagination } from "@/components/dictionary/dictionary-table";
 import { DictionaryFormModal } from "@/components/dictionary/dictionary-form-modal";
 import { DeleteConfirmDialog } from "@/components/dictionary/delete-confirm-dialog";
+import { ResetConfirmDialog } from "@/components/dictionary/reset-confirm-dialog";
 import {
   CATEGORY_LABELS,
   CONTEXT_TYPE_LABELS,
@@ -31,6 +32,7 @@ import {
   upsertDictionary,
   updateDictionary,
   deleteDictionary,
+  bulkDeleteDictionary,
   getDictionaryStats,
 } from "@/lib/supabase/queries/dictionary";
 import type { Dictionary, DictionaryCategory, DictionaryContextType } from "@/types";
@@ -63,8 +65,10 @@ export default function DictionaryPage() {
   const [formOpen, setFormOpen] = useState(false);
   const [editItem, setEditItem] = useState<Dictionary | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Dictionary | null>(null);
+  const [resetOpen, setResetOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [resetting, setResetting] = useState(false);
 
   // 검색 디바운스 ref
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -186,6 +190,23 @@ export default function DictionaryPage() {
     }
   }
 
+  async function handleReset(category: DictionaryCategory, contextType: DictionaryContextType) {
+    setResetting(true);
+    try {
+      const count = await bulkDeleteDictionary(category, contextType);
+      toast.success(`[${category} / ${contextType}] ${count}건이 삭제되었습니다.`);
+      setResetOpen(false);
+      setCurrentPage(1);
+      await fetchItems();
+      fetchStats();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "초기화 중 오류가 발생했습니다.";
+      toast.error(msg);
+    } finally {
+      setResetting(false);
+    }
+  }
+
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
   return (
@@ -292,6 +313,18 @@ export default function DictionaryPage() {
           </SelectContent>
         </Select>
 
+        {/* 초기화 버튼 */}
+        <Button
+          variant="destructive"
+          onClick={() => setResetOpen(true)}
+          className="shrink-0"
+          aria-label="단어사전 초기화"
+          disabled={loading}
+        >
+          <RotateCcw className="h-4 w-4 mr-1.5" aria-hidden="true" />
+          초기화
+        </Button>
+
         {/* 추가 버튼 */}
         <Button
           onClick={() => { setEditItem(null); setFormOpen(true); }}
@@ -388,6 +421,12 @@ export default function DictionaryPage() {
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
         loading={deleting}
+      />
+      <ResetConfirmDialog
+        open={resetOpen}
+        onConfirm={handleReset}
+        onCancel={() => setResetOpen(false)}
+        loading={resetting}
       />
     </Container>
   );
