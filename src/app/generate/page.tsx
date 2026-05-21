@@ -76,6 +76,10 @@ export default function GeneratePage() {
     setOptions({ outputFormats: next });
   }
 
+  function handleDictionaryChange(checked: boolean) {
+    setOptions({ useDictionary: checked });
+  }
+
   function handleGenerate() {
     const selectedFiles = useFileTreeStore.getState().getSelectedFiles();
     if (selectedFiles.length === 0) return;
@@ -212,8 +216,10 @@ export default function GeneratePage() {
               <GenerationPanel
                 selectedFileCount={tree.selectedFiles}
                 outputFormats={options.outputFormats}
+                useDictionary={options.useDictionary}
                 progress={progress}
                 onOutputFormatChange={handleOutputFormatChange}
+                onDictionaryChange={handleDictionaryChange}
                 onGenerate={handleGenerate}
               />
             </CardContent>

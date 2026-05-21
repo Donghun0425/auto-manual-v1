@@ -144,10 +144,12 @@ async function enrichGridDescriptions(
       usage = addUsage(usage, batchUsage);
     }
 
-    // AI 생성 결과를 단어사전에 저장 — context_type='grid'
-    for (const col of toProcess) {
-      if (col.description) {
-        upsertDictionary({ term: col.headerText, context_type: contextType, category, description: col.description, source: "ai" }).catch(() => {});
+    // AI 생성 결과를 단어사전에 저장 — context_type='grid' (사전 연동 모드일 때만)
+    if (useDictionary) {
+      for (const col of toProcess) {
+        if (col.description) {
+          upsertDictionary({ term: col.headerText, context_type: contextType, category, description: col.description, source: "ai" }).catch(() => {});
+        }
       }
     }
   }
@@ -234,10 +236,12 @@ async function enrichConditionDescriptions(
       usage = addUsage(usage, batchUsage);
     }
 
-    // AI 생성 결과를 단어사전에 저장 — context_type 별 독립 코시
-    for (const ctrl of toProcess) {
-      if (ctrl.description) {
-        upsertDictionary({ term: ctrl.labelText, context_type: contextType, category, description: ctrl.description, source: "ai" }).catch(() => {});
+    // AI 생성 결과를 단어사전에 저장 — context_type 별 독립 (사전 연동 모드일 때만)
+    if (useDictionary) {
+      for (const ctrl of toProcess) {
+        if (ctrl.description) {
+          upsertDictionary({ term: ctrl.labelText, context_type: contextType, category, description: ctrl.description, source: "ai" }).catch(() => {});
+        }
       }
     }
   }

@@ -54,16 +54,20 @@ function StatusBadge({ status }: { status: GenerationProgress["status"] }) {
 interface GenerationPanelProps {
   selectedFileCount: number;
   outputFormats: OutputType[];
+  useDictionary: boolean;
   progress: GenerationProgress;
   onOutputFormatChange: (format: OutputType, checked: boolean) => void;
+  onDictionaryChange: (checked: boolean) => void;
   onGenerate: () => void;
 }
 
 export function GenerationPanel({
   selectedFileCount,
   outputFormats,
+  useDictionary,
   progress,
   onOutputFormatChange,
+  onDictionaryChange,
   onGenerate,
 }: GenerationPanelProps) {
   const isRunning = progress.status === "parsing" || progress.status === "generating";
@@ -91,6 +95,33 @@ export function GenerationPanel({
             </div>
           ))}
         </div>
+      </div>
+
+      <Separator />
+
+      {/* 생성 형식 */}
+      <div className="space-y-2">
+        <p className="text-sm font-medium">생성 형식</p>
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="use-dictionary"
+            checked={useDictionary}
+            onCheckedChange={(checked) => onDictionaryChange(checked === true)}
+            aria-label="단어사전 활용"
+          />
+          <Label htmlFor="use-dictionary" className="text-sm cursor-pointer">
+            단어사전 활용
+          </Label>
+        </div>
+        {!useDictionary && (
+          <div className="flex items-start gap-1.5 text-xs text-amber-600 dark:text-amber-400">
+            <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" aria-hidden="true" />
+            <div className="space-y-0.5">
+              <p>모든 항목은 단어사전을 활용하지 않고, 일괄 AI를 통해 생성합니다.</p>
+              <p>AI로 생성된 결과가 단어사전에 저장되지 않습니다.</p>
+            </div>
+          </div>
+        )}
       </div>
 
       <Separator />
