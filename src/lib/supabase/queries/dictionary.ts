@@ -6,6 +6,7 @@ import type {
   DictionaryCategory,
   DictionaryContextType,
 } from "@/types";
+import { normalizeLabel } from "@/lib/utils";
 
 export interface DictionaryListParams {
   search?: string;        // term 또는 description 검색
@@ -67,7 +68,7 @@ export async function findDictionaryByTerm(
   const { data, error } = await supabase
     .from("dictionary")
     .select("*")
-    .eq("term", term.trim())
+    .eq("term", normalizeLabel(term))
     .eq("context_type", contextType)
     .maybeSingle();
 
@@ -86,7 +87,7 @@ export async function findDictionaryByTerms(
 ): Promise<Map<string, string>> {
   if (terms.length === 0) return new Map();
 
-  const trimmed = terms.map((t) => t.trim());
+  const trimmed = terms.map(normalizeLabel);
   const { data, error } = await supabase
     .from("dictionary")
     .select("term, description")
@@ -110,9 +111,10 @@ export async function findDictionaryByTerms(
 export async function upsertDictionary(
   input: DictionaryInsert
 ): Promise<Dictionary> {
+  const normalized: DictionaryInsert = { ...input, term: normalizeLabel(input.term) };
   const { data, error } = await supabase
     .from("dictionary")
-    .upsert(input as unknown as Record<string, unknown>, { onConflict: "term,context_type" })
+    .upsert(normalized as unknown as Record<string, unknown>, { onConflict: "term,context_type" })
     .select()
     .single();
 
@@ -149,6 +151,20 @@ export async function deleteDictionary(
     .eq("term", term)
     .eq("context_type", contextType);
   if (error) throw new Error(`단어 삭제 실패: ${error.message}`);
+}
+
+/** 단어사전 일괄 삭제 (카테고리 + 항목유형 기준) */
+export async function bulkDeleteDictionary(
+  category: DictionaryCategory,
+  contextType: DictionaryContextType
+): Promise<number> {
+  const { count, error } = await supabase
+    .from("dictionary")
+    .delete({ count: "exact" })
+    .eq("category", category)
+    .eq("context_type", contextType);
+  if (error) throw new Error(`일괄 삭제 실패: ${error.message}`);
+  return count ?? 0;
 }
 
 /** 단어사전 통계 조회 (대시보드·헤더 카운트용) */
