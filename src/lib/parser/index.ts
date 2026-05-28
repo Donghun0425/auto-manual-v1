@@ -102,13 +102,24 @@ export function analyzeFile(filePath: string, content: string): ClxParseResult {
     });
   }
 
+  const menuTitleBar = parseMenuTitleBarCrud(content);
+  const titleBars = parseTitleBarCrud(content);
+  // A: menuTitleBar·titleBars에서 이미 소유한 버튼 이름과 중복되는 extraButtons 제거
+  // B(extDelegatedFns)가 핸들러 체인으로 걸러내더라도, 이름이 같은 별도 핸들러를
+  // 통해 선언된 경우를 이중으로 방어한다.
+  const ownedExtNames = new Set([
+    ...menuTitleBar.extButtons.map(b => b.name),
+    ...titleBars.flatMap(tb => tb.extButtons.map(b => b.name)),
+  ]);
+  const extraButtons = parseExtraButtons(content).filter(b => !ownedExtNames.has(b.name));
+
   return {
     filePath,
     overview: parseHeader(content),
     usage: {
-      menuTitleBar: parseMenuTitleBarCrud(content),
-      titleBars: parseTitleBarCrud(content),
-      extraButtons: parseExtraButtons(content),
+      menuTitleBar,
+      titleBars,
+      extraButtons,
     },
     notes: {
       requiredFields: parseRequiredFields(content),

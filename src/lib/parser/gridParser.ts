@@ -21,13 +21,90 @@ function cleanHeaderText(text: string): string {
 }
 
 /**
- * PatisTitleBar(CT_GRIDTITLENN) → 그리드 타이틀 맵 추출
+ * Container("GRID_GROUP...") 선언 이후 (function(container){...}) 본문 추출
+ */
+function extractContainerBody(content: string, fromIndex: number, maxDistance = 10000): string | null {
+  const funcMarker = '(function(container){';
+  const start = content.indexOf(funcMarker, fromIndex);
+  if (start < 0 || start - fromIndex > maxDistance) return null;
+  let depth = 0;
+  for (let i = start; i < content.length; i++) {
+    if (content[i] === '{') depth++;
+    else if (content[i] === '}') {
+      depth--;
+      if (depth === 0) return content.slice(start + funcMarker.length, i);
+    }
+  }
+  return null;
+}
+
+/**
+ * PatisTitleBar(CT_GRIDTITLENN) → 그리드 ID 매핑 추출
+ *
+ * 탐색 전략 (우선순위 순):
+ * 1. GRID_GROUP 컨테이너 본문 내 PatisTitleBar title + app.lookup("DG_...") 조합
+ * 2. CT_GRIDTITLE{N} 선언부 varName + varName.setGrid/target 패턴으로 실제 그리드 ID
+ * 3. 기존 폴백: CT_GRIDTITLE{N} 접미 숫자 → DG_GRID{N} 추정
  */
 function parseGridTitleMap(content: string): Map<string, string> {
   const titleMap = new Map<string, string>();
+
+  // ── 전략 1: GRID_GROUP 컨테이너 본문에서 titleBar title + 그리드 ID 연결 ─────
+  // [^"]* : GRID_GROUP, GRID_GROUP01 등 숫자 접미사 없는 경우도 매치
+  const gridGroupRe = /new\s+cpr\.controls\.Container\("(GRID_GROUP[^"]*)"\)/g;
+  let gm: RegExpExecArray | null;
+  while ((gm = gridGroupRe.exec(content)) !== null) {
+    const body = extractContainerBody(content, gm.index);
+    if (!body) continue;
+
+    // body 내 PatisTitleBar title 추출
+    const tbM = /new\s+udc\.common\.PatisTitleBar\("[^"]+"\)/.exec(body);
+    if (!tbM) continue;
+    const afterTb = body.slice(tbM.index, tbM.index + 600);
+    const titleM = /\.title\s*=\s*"([^"]+)"/.exec(afterTb);
+    if (!titleM) continue;
+    const title = titleM[1];
+
+    // body 내 app.lookup("DG_...") 로 그리드 ID 탐색
+    const lookupM = /app\.lookup\("(DG_[^"]+)"\)/.exec(body);
+    if (lookupM) {
+      titleMap.set(lookupM[1], title);
+      continue;
+    }
+    // app.lookup 없으면 new cpr.controls.Grid("DG_...") 탐색
+    const gridDeclM = /new\s+cpr\.controls\.Grid\("(DG_[^"]+)"\)/.exec(body);
+    if (gridDeclM) titleMap.set(gridDeclM[1], title);
+  }
+
+  // ── 전략 2: CT_GRIDTITLE{N} varName + varName.setGrid / .target 바인딩 ───────
+  // 전략 1에서 매핑되지 않은 그리드를 보완
+  const tbDeclRe = /var\s+(\w+)\s*=\s*(?:linker\.\w+\s*=\s*)?new\s+udc\.common\.PatisTitleBar\("(CT_GRIDTITLE\d+)"\)/g;
+  let td: RegExpExecArray | null;
+  while ((td = tbDeclRe.exec(content)) !== null) {
+    const varName = td[1];
+    const afterDecl = content.slice(td.index, td.index + 800);
+    const titleM = /\.title\s*=\s*"([^"]+)"/.exec(afterDecl);
+    if (!titleM) continue;
+    const title = titleM[1];
+
+    // varName.setGrid(app.lookup("DG_...")) 또는 varName.target = app.lookup("DG_...")
+    const bindRe = new RegExp(
+      `${varName}\\s*\\.\\s*(?:setGrid|target)\\s*[=(]\\s*app\\.lookup\\("(DG_[^"]+)"\\)`
+    );
+    const bindM = bindRe.exec(content.slice(td.index, td.index + 1500));
+    if (bindM) {
+      if (!titleMap.has(bindM[1])) titleMap.set(bindM[1], title);
+      continue;
+    }
+
+    // 같은 800자 이내에 app.lookup("DG_...") 단독 참조
+    const nearLookupM = /app\.lookup\("(DG_[^"]+)"\)/.exec(afterDecl);
+    if (nearLookupM && !titleMap.has(nearLookupM[1])) titleMap.set(nearLookupM[1], title);
+  }
+
+  // ── 전략 3: 폴백 — 접미 숫자로 DG_GRID{N} 추정, 미매핑 항목만 보완 ──────────
   const tbPattern = /new udc\.common\.PatisTitleBar\("(CT_GRIDTITLE\d+)"\)/g;
   let match: RegExpExecArray | null;
-
   while ((match = tbPattern.exec(content)) !== null) {
     const tbId = match[1];
     const afterCreation = content.slice(match.index, match.index + 500);
@@ -35,7 +112,8 @@ function parseGridTitleMap(content: string): Map<string, string> {
     if (!titleMatch) continue;
     const numMatch = /(\d+)$/.exec(tbId);
     if (!numMatch) continue;
-    titleMap.set(`DG_GRID${numMatch[1]}`, titleMatch[1]);
+    const inferredId = `DG_GRID${numMatch[1]}`;
+    if (!titleMap.has(inferredId)) titleMap.set(inferredId, titleMatch[1]);
   }
 
   return titleMap;

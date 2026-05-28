@@ -14,6 +14,11 @@ export interface UdcInfo {
   defaultLabels: Record<string, string>;
   /** 라벨 인수 인덱스 (기본 0 = 첫 번째 인수, 1 = 두 번째 인수 등) */
   labelArgIndex?: number;
+  /**
+   * UDC 자체가 표시하는 고정 필드 목록
+   * INFOGROUP 안에 단독 배치되는 정보 표시용 UDC에만 사용
+   */
+  defaultFields?: { label: string; type: string }[];
 }
 
 /** UDC 단축명 → UdcInfo 맵 */
@@ -67,9 +72,33 @@ export const UDC_REGISTRY: Record<string, UdcInfo> = {
   'PatisWebEditor': {"qualifiedName":"udc.common.PatisWebEditor","description":"공통 웹 에디터 컴포넌트","labelFns":["setTitleText"],"defaultLabels":{}},
   'PatisYearCombo': {"qualifiedName":"udc.common.PatisYearCombo","description":"공통 연도 컴포넌트","labelFns":[],"defaultLabels":{}},
   'PatisZipComnt': {"qualifiedName":"udc.common.PatisZipComnt","description":"공통 우편번호 검색 컴포넌트","labelFns":[],"defaultLabels":{}},
-  'UcoStdntInfo': {"qualifiedName":"udc.univ.UcoStdntInfo","description":"학사 학생의 기초정보를 조회한다.","labelFns":[],"defaultLabels":{}},
-  'UcoStdntInfo01': {"qualifiedName":"udc.univ.UcoStdntInfo01","description":"학사 학생의 기초정보를 조회한다.","labelFns":[],"defaultLabels":{}},
+  'UcoStdntInfo': {"qualifiedName":"udc.univ.UcoStdntInfo","description":"학사 학생의 기초정보를 조회한다.","labelFns":[],"defaultLabels":{},"defaultFields":[
+    {"label":"학번","type":"Output"},{"label":"대학","type":"Output"},{"label":"학적상태","type":"Output"},{"label":"학적변동","type":"Output"},
+    {"label":"성명(국)","type":"Output"},{"label":"학과","type":"Output"},{"label":"학년/학제","type":"Output"},{"label":"변동사유","type":"Output"},
+    {"label":"성명(영)","type":"Output"},{"label":"전공","type":"Output"},{"label":"수강학년","type":"Output"},{"label":"변동세부사유","type":"Output"},
+    {"label":"생년월일","type":"Output"},{"label":"반","type":"Output"},{"label":"이수학기","type":"Output"},{"label":"변동일자","type":"Output"},
+    {"label":"성별","type":"Output"},{"label":"주야","type":"Output"},{"label":"등록학기","type":"Output"},{"label":"지도교수","type":"Output"}
+  ]},
+  'UcoStdntInfo01': {"qualifiedName":"udc.univ.UcoStdntInfo01","description":"학사 학생의 기초정보를 조회한다.","labelFns":[],"defaultLabels":{},"defaultFields":[
+    {"label":"학번","type":"Output"},{"label":"대학","type":"Output"},{"label":"학적상태","type":"Output"},{"label":"학적변동","type":"Output"},
+    {"label":"성명(국)","type":"Output"},{"label":"학과","type":"Output"},{"label":"학년/학제","type":"Output"},{"label":"변동사유","type":"Output"},
+    {"label":"성명(영)","type":"Output"},{"label":"전공","type":"Output"},{"label":"수강학년","type":"Output"},{"label":"변동세부사유","type":"Output"},
+    {"label":"생년월일","type":"Output"},{"label":"반","type":"Output"},{"label":"이수학기","type":"Output"},{"label":"변동일자","type":"Output"},
+    {"label":"성별","type":"Output"},{"label":"주야","type":"Output"},{"label":"등록학기","type":"Output"},{"label":"지도교수","type":"Output"}
+  ]},
   'UscBatchList': {"qualifiedName":"udc.univ.UscBatchList","description":"학사 행정의 배치 리스트를 조회한다.","labelFns":["setTitleText"],"defaultLabels":{}},
-  'UscStudentInfo': {"qualifiedName":"udc.univ.UscStudentInfo","description":"학사 학생의 기초정보를 조회한다.","labelFns":[],"defaultLabels":{}},
-  'UscStudentInfo01': {"qualifiedName":"udc.univ.UscStudentInfo01","description":"학사 학생의 기초정보를 조회한다.","labelFns":[],"defaultLabels":{}},
+  'UscStudentInfo': {"qualifiedName":"udc.univ.UscStudentInfo","description":"학사 학생의 기초정보를 조회한다.","labelFns":[],"defaultLabels":{},"defaultFields":[
+    {"label":"학번","type":"Output"},{"label":"대학","type":"Output"},{"label":"학적상태","type":"Output"},{"label":"학적변동","type":"Output"},
+    {"label":"성명(국)","type":"Output"},{"label":"학과","type":"Output"},{"label":"학년/학제","type":"Output"},{"label":"변동사유","type":"Output"},
+    {"label":"성명(영)","type":"Output"},{"label":"전공","type":"Output"},{"label":"수강학년","type":"Output"},{"label":"변동세부사유","type":"Output"},
+    {"label":"생년월일","type":"Output"},{"label":"반","type":"Output"},{"label":"이수학기","type":"Output"},{"label":"변동일자","type":"Output"},
+    {"label":"성별","type":"Output"},{"label":"주야","type":"Output"},{"label":"등록학기","type":"Output"},{"label":"지도교수","type":"Output"}
+  ]},
+  'UscStudentInfo01': {"qualifiedName":"udc.univ.UscStudentInfo01","description":"학사 학생의 기초정보를 조회한다.","labelFns":[],"defaultLabels":{},"defaultFields":[
+    {"label":"학번","type":"Output"},{"label":"대학","type":"Output"},{"label":"학적상태","type":"Output"},{"label":"학적변동","type":"Output"},
+    {"label":"성명(국)","type":"Output"},{"label":"학과","type":"Output"},{"label":"학년/학제","type":"Output"},{"label":"변동사유","type":"Output"},
+    {"label":"성명(영)","type":"Output"},{"label":"전공","type":"Output"},{"label":"수강학년","type":"Output"},{"label":"변동세부사유","type":"Output"},
+    {"label":"생년월일","type":"Output"},{"label":"반","type":"Output"},{"label":"이수학기","type":"Output"},{"label":"변동일자","type":"Output"},
+    {"label":"성별","type":"Output"},{"label":"주야","type":"Output"},{"label":"등록학기","type":"Output"},{"label":"지도교수","type":"Output"}
+  ]},
 };

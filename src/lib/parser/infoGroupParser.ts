@@ -57,7 +57,8 @@ export function parseInfoGroups(content: string): InfoGroupInfo[] {
   // ── Step 1: CT_INFOTITLE{N} 타이틀 맵 구성 ───────────────────────────────
   // "01" → "공통코드(3레벨) 세부정보" 형태
   const titleMap = new Map<string, string>();
-  const titleDeclRe = /var\s+(\w+)\s*=\s*(?:linker\.\w+\s*=\s*)?new\s+udc\.common\.PatisTitleBar\("CT_INFOTITLE(\d+)"\)/g;
+  // CT_INFOTITLE01, CT_TABPAGE02_INFOTITLE01 등 다양한 접두사 패턴 허용
+  const titleDeclRe = /var\s+(\w+)\s*=\s*(?:linker\.\w+\s*=\s*)?new\s+udc\.common\.PatisTitleBar\("CT_[^"]*INFOTITLE(\d+)"\)/g;
   let tm: RegExpExecArray | null;
   while ((tm = titleDeclRe.exec(content)) !== null) {
     const tvName = tm[1];
@@ -144,10 +145,23 @@ export function parseInfoGroups(content: string): InfoGroupInfo[] {
 
     result.push({
       groupId,
-      title: titleMap.get(groupNum),
+      // CT_INFOTITLE{N} 맵 탐색 먼저, 없으면 INFOGROUP body 내 PatisTitleBar title 탐색
+      title: titleMap.get(groupNum) ?? findTitleInBody(body),
       controls,
     });
   }
 
   return result;
+}
+
+/**
+ * 컨테이너 IIFE 본문 내에서 임의 PatisTitleBar의 title 속성값을 추출한다.
+ * CT_INFOTITLE 네이밍 규칙을 따르지 않는 CLX 파일의 폴백 처리용.
+ */
+function findTitleInBody(body: string): string | undefined {
+  const tbM = /new\s+udc\.common\.PatisTitleBar\("[^"]+"\)/.exec(body);
+  if (!tbM) return undefined;
+  const afterTb = body.slice(tbM.index, tbM.index + 600);
+  const titleM = /\.title\s*=\s*"([^"]+)"/.exec(afterTb);
+  return titleM?.[1];
 }

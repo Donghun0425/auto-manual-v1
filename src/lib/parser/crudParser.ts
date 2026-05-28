@@ -527,11 +527,23 @@ function extractExtButtonName(content: string, functionName: string): string | n
       // 선행 공백·/ ·* 제거 (/** 열기줄, */ 닫기줄도 빈 문자열이 됨)
       const stripped = line.replace(/^\s*[/*]+\s*/, '').trim();
       if (!stripped || /^@/.test(stripped)) continue;
-      // JSDoc 함수 설명 접미사 제거: "버튼 클릭 이벤트함수", "클릭 이벤트함수" 등
+      // "PatisMenuTitleBar 추가버튼N [임의텍스트] (실제레이블)" 형식 → 괄호 안 레이블만 추출
+      // 예) "PatisMenuTitleBar 추가버튼1 클릭 전처리 함수 (전년도 자료복사)" → "전년도 자료복사"
+      const patisMatch = /PatisMenuTitleBar\s+추가버튼\d+[^(]*\(([^)]+)\)/.exec(stripped);
+      if (patisMatch) return patisMatch[1].trim();
+      // 일반 괄호 추출: 줄 끝에 "(레이블)" 형식이 있으면 괄호 안 내용을 우선 반환
+      // 예) "추가버튼1 클릭 전처리 함수 (전년도 자료복사)" → "전년도 자료복사"
+      const parenMatch = /\(([^)]+)\)\s*$/.exec(stripped);
+      if (parenMatch) return parenMatch[1].trim();
+      // JSDoc 함수 설명 접미사·접두사 제거 (위 두 패턴 모두 실패한 경우의 fallback)
       return stripped
+        .replace(/^(?:PatisMenuTitleBar\s+)?추가버튼\d+\s*/i, '') // 선두 접두사 제거
         .replace(/\s*버튼\s*클릭\s*이벤트\s*함수\s*$/i, '')
         .replace(/\s*클릭\s*이벤트\s*함수\s*$/i, '')
         .replace(/\s*이벤트\s*함수\s*$/i, '')
+        .replace(/\s*클릭\s*전처리\s*함수\s*$/i, '')  // 추가: "클릭 전처리 함수"
+        .replace(/\s*클릭\s*처리\s*함수\s*$/i, '')
+        .replace(/\s*처리\s*함수\s*$/i, '')
         .trim();
     }
   }
@@ -555,6 +567,21 @@ export function parseExtraButtons(content: string): ExtButtonInfo[] {
   const buttons: ExtButtonInfo[] = [];
   const seenControlId = new Set<string>();
   const seenFuncBase = new Set<string>();
+
+  // ── B: Form_ext*/TitleForm_ext* 바디에서 직접 호출(위임)하는 함수명 수집 ──
+  // PatisTitleBar/PatisMenuTitleBar ext 버튼이 내부적으로 위임하는 핸들러와
+  // 동일한 이름의 독립 버튼이 UI 섹션에 선언된 경우 중복 감지를 방지한다.
+  const KEYWORD_SET = new Set([
+    'if', 'for', 'while', 'do', 'return', 'function', 'switch',
+    'catch', 'typeof', 'instanceof', 'new', 'delete', 'void', 'throw',
+  ]);
+  const extDelegatedFns = new Set<string>();
+  for (const em of content.matchAll(/function\s+((?:Form_ext|TitleForm_ext)\d+Click)\s*\(/g)) {
+    const body = extractFunctionBody(content, em[1]);
+    for (const call of body.matchAll(/\b([a-zA-Z_$][\w$]*)\s*\(/g)) {
+      if (!KEYWORD_SET.has(call[1])) extDelegatedFns.add(call[1]);
+    }
+  }
 
   // ─── 패턴 1: function {name}_onclick( ─────────────────────────────────────
   const onclickRe = /function\s+((?!Form_|TitleForm_|App_)\w+)_onclick\s*\(/g;
@@ -603,9 +630,17 @@ export function parseExtraButtons(content: string): ExtButtonInfo[] {
     const handlerFn = handlerMatch[1];
     // 시스템 핸들러 제외
     if (/^Form_|^TitleForm_|^App_/.test(handlerFn)) continue;
+    // ext 버튼이 위임하는 핸들러 제외 (PatisTitleBar/PatisMenuTitleBar ext 버튼 중복 방지)
+    if (extDelegatedFns.has(handlerFn)) continue;
+
+    // SEARCHGROUP 내 버튼은 조회조건 영역이므로 사용방법 섹션에서 제외
+    if (controlId.startsWith('SEARCHGROUP')) continue;
+
+    // label/classLabel 모두 없는 경우: 단순 제외 (내부 ID 노출 방지)
+    const btnLabel = label || classLabel;
+    if (!btnLabel) continue;
 
     seenControlId.add(controlId);
-    const btnLabel = label || classLabel || controlId;
     const body2 = extractFunctionBody(content, handlerFn);
     const desc2 = analyzeBtnFunctionBody(body2, btnLabel);
     buttons.push({
