@@ -2,7 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { FileCode2, BarChart3, Eye, AlignLeft, ImageIcon, Upload, Trash2, ClipboardCopy, Check } from "lucide-react";
+import { FileCode2, BarChart3, Eye, AlignLeft, ImageIcon, Upload, Trash2, ClipboardCopy, Check, GitCompare, CheckCircle2 } from "lucide-react";
 import { Container } from "@/components/layout/container";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -16,6 +16,9 @@ import { MarkdownView } from "@/components/result/markdown-view";
 import { FileResultSidebar } from "@/components/result/file-result-sidebar";
 import { DownloadBar } from "@/components/result/download-bar";
 import { useGenerationStore } from "@/stores/generation-store";
+import { useCompareStore } from "@/stores/compare-store";
+import { useAiSettingsStore } from "@/stores/ai-settings-store";
+import type { CompareProvider } from "@/stores/compare-store";
 
 export default function ResultPage() {
   const router = useRouter();
@@ -24,6 +27,16 @@ export default function ResultPage() {
   const [copied, setCopied] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const generationResult = useGenerationStore((s) => s.result);
+  const { settings } = useAiSettingsStore();
+  const { setResult: saveToCompare, vsCodeProxyResult, internalResult } = useCompareStore();
+  const [savedToCompare, setSavedToCompare] = useState<boolean>(false);
+
+  const currentProvider = settings.provider;
+  const isComparableProvider = currentProvider === "vscode-proxy" || currentProvider === "internal";
+  const alreadySaved =
+    currentProvider === "vscode-proxy" ? !!vsCodeProxyResult :
+    currentProvider === "internal" ? !!internalResult :
+    false;
 
   const results = generationResult?.results ?? [];
   const hasResults = results.length > 0;
@@ -41,6 +54,13 @@ export default function ResultPage() {
       }).catch(() => {});
     }
   }, [generationResult]);
+
+  function handleSaveToCompare() {
+    if (!generationResult || !isComparableProvider) return;
+    saveToCompare(currentProvider as CompareProvider, generationResult);
+    setSavedToCompare(true);
+    setTimeout(() => setSavedToCompare(false), 2000);
+  }
 
   function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -119,23 +139,46 @@ export default function ResultPage() {
         description="분석 결과와 생성된 매뉴얼을 확인하고 다운로드하세요"
       />
 
-      {/* 상단: 요약 통계 + 다운로드 */}
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-6">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-1.5 text-sm">
-            <FileCode2 className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-            <span className="text-muted-foreground">분석 파일</span>
-            <Badge variant="secondary">{results.length}개</Badge>
-          </div>
-          <Separator orientation="vertical" className="h-4" />
-          <div className="flex items-center gap-1.5 text-sm">
-            <BarChart3 className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-            <span className="text-muted-foreground">총 토큰</span>
-            <Badge variant="secondary">{totalTokens.toLocaleString()}</Badge>
-          </div>
+      {/* 상단 1행: 요약 통계 */}
+      <div className="flex flex-wrap items-center gap-3 mb-3">
+        <div className="flex items-center gap-1.5 text-sm">
+          <FileCode2 className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+          <span className="text-muted-foreground">분석 파일</span>
+          <Badge variant="secondary">{results.length}개</Badge>
         </div>
+        <Separator orientation="vertical" className="h-4" />
+        <div className="flex items-center gap-1.5 text-sm">
+          <BarChart3 className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
+          <span className="text-muted-foreground">총 토큰</span>
+          <Badge variant="secondary">{totalTokens.toLocaleString()}</Badge>
+        </div>
+      </div>
 
+      {/* 상단 2행: 다운로드 + 비교 저장 */}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <DownloadBar results={results} selectedIndex={selectedIndex} screenImages={screenImages} />
+
+        {/* 비교용 저장 버튼 (VS Code 프록시 / 내부 AI 결과만 가능) */}
+        {isComparableProvider && (
+          <Button
+            variant={alreadySaved ? "secondary" : "outline"}
+            size="sm"
+            onClick={handleSaveToCompare}
+            disabled={savedToCompare}
+            className="gap-1.5 border-purple-300 text-purple-700 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-400 dark:hover:bg-purple-950"
+          >
+            {savedToCompare ? (
+              <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />
+            ) : (
+              <GitCompare className="h-3.5 w-3.5" aria-hidden="true" />
+            )}
+            {savedToCompare
+              ? "저장됨"
+              : alreadySaved
+              ? "비교용 재저장"
+              : "비교용으로 저장"}
+          </Button>
+        )}
       </div>
 
       <div className="grid lg:grid-cols-4 gap-6 items-start">

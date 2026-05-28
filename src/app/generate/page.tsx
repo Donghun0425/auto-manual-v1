@@ -14,6 +14,8 @@ import { useFileTreeStore } from "@/stores/file-tree-store";
 import { useAiSettingsStore } from "@/stores/ai-settings-store";
 import { useGenerationStore } from "@/stores/generation-store";
 import { useLayoutEditorStore } from "@/stores/layout-editor-store";
+import { useCompareStore } from "@/stores/compare-store";
+import type { CompareProvider } from "@/stores/compare-store";
 import { processUploadedFiles, collectAllPaths } from "@/lib/file-processor";
 import type { OutputType } from "@/types";
 import type { GenerateRequestBody, GenerateResponseBody } from "@/app/api/generate/route";
@@ -123,6 +125,15 @@ export default function GeneratePage() {
         }
         completeGeneration(data.duration);
         updateProgress({ status: data.errors.length > 0 && data.results.length === 0 ? "error" : "completed" });
+
+        // VS Code 프록시 / 내부 AI 결과는 비교 스토어에도 자동 저장
+        const provider = settings.provider;
+        if ((provider === "vscode-proxy" || provider === "internal") && data.results.length > 0) {
+          const fullResult = useGenerationStore.getState().result;
+          if (fullResult) {
+            useCompareStore.getState().setResult(provider as CompareProvider, fullResult);
+          }
+        }
       })
       .catch((err) => {
         addError({
