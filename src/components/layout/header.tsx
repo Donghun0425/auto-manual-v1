@@ -19,7 +19,8 @@ import { cn } from "@/lib/utils"
 const navItems = [
   { label: "홈", href: "/" },
   { label: "매뉴얼 생성", href: "/generate" },
-  { label: "결과", href: "/result" },
+  { label: "매뉴얼 결과", href: "/result" },
+  { label: "생성결과 비교", href: "/compare" },
   { label: "단어사전", href: "/dictionary" },
   { label: "레이아웃 관리", href: "/layout-manager" },
 ]

@@ -89,8 +89,7 @@ export const DUMMY_PARSE_RESULT: ManualResult = {
             { columnName: "STATUS_NM", headerText: "재적상태", description: "", controlType: "Output", purpose: "표시" },
           ],
         },
-      ],
-    },
+      ],      udcDetails: [],    },
     tabPages: [],
     popups: [
       { popupId: "pop_dept", popupUrl: "common/pop_dept", callbackFunction: "fn_deptCallback", width: 600, height: 500 },

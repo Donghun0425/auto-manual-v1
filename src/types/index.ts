@@ -13,6 +13,10 @@ export type {
   TabPageInfo,
   ClxParseResult,
   ClxCategory,
+  UdcButtonInfo,
+  UdcMediaInfo,
+  UdcInternalInfo,
+  UsedUdcInfo,
 } from "./clx";
 
 export type {
