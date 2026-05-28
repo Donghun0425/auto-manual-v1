@@ -4,14 +4,15 @@
  */
 
 /** AI 제공자 모드 */
-export type AiProvider = "github" | "vscode-proxy";
+export type AiProvider = "github" | "vscode-proxy" | "internal";
 
 /** AI 모델 옵션 */
 export type AiModel =
   | "gpt-4o-mini"
   | "gpt-4o"
   | "gpt-4.1-mini"
-  | "gpt-4.1-nano";
+  | "gpt-4.1-nano"
+  | "gemma4-31b";
 
 /** AI 설정 (localStorage 저장) */
 export interface AiSettings {
@@ -19,15 +20,17 @@ export interface AiSettings {
   apiKey?: string;
   model: AiModel;
   proxyUrl: string;
+  internalBaseUrl: string;
   maxTokens: number;
   temperature: number;
 }
 
 /** AI 기본 설정 */
 export const DEFAULT_AI_SETTINGS: AiSettings = {
-  provider: "github",
+  provider: "vscode-proxy",
   model: "gpt-4o-mini",
   proxyUrl: "http://localhost:3100",
+  internalBaseUrl: "http://192.168.71.125/v1",
   maxTokens: 4096,
   temperature: 0.3,
 };

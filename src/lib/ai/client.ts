@@ -85,6 +85,11 @@ export async function callAi(
   settings: AiSettings,
   messages: AiMessage[]
 ): Promise<AiResponse> {
+  // 내부 AI 서버(Dify)는 별도 호출 로직 사용
+  if (settings.provider === "internal") {
+    return callDifyAi(settings, messages);
+  }
+
   const payload: AiRequest = {
     model: settings.model,
     messages,
@@ -134,9 +139,26 @@ export async function callAi(
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const raw: any = await response.json();
+
+      // 프록시가 HTTP 200으로 에러 JSON을 반환하는 경우 감지
+      if (raw?.error) {
+        const errMsg =
+          typeof raw.error === "string"
+            ? raw.error
+            : (raw.error?.message ?? JSON.stringify(raw.error));
+        throw new Error(`프록시 오류: ${errMsg}`);
+      }
+
+      // choices 가 없는 경우 (지원하지 않는 모델 등)
+      if (!Array.isArray(raw?.choices) || raw.choices.length === 0) {
+        throw new Error(
+          `AI 응답에 choices가 없습니다. 요청 모델: ${settings.model}`
+        );
+      }
+
       const normalizedUsage = normalizeUsage(raw?.usage);
       const responseContent: string =
-        raw?.choices?.[0]?.message?.content ?? "";
+        raw.choices[0]?.message?.content ?? "";
       const data: AiResponse = {
         ...raw,
         usage: fillEstimatedUsage(normalizedUsage, messages, responseContent),
@@ -153,6 +175,111 @@ export async function callAi(
   }
 
   throw lastError ?? new Error("AI API 호출 실패");
+}
+
+/**
+ * 내부 AI 서버(Dify) 호출.
+ * Dify /v1/chat-messages 엔드포인트를 사용하고, 응답을 AiResponse 형식으로 변환한다.
+ * messages 배열의 system/user 메시지를 query 문자열로 병합하여 전달한다.
+ */
+async function callDifyAi(
+  settings: AiSettings,
+  messages: AiMessage[]
+): Promise<AiResponse> {
+  if (!settings.apiKey) {
+    throw new Error("내부 AI 서버 API 키가 설정되지 않았습니다.");
+  }
+
+  const baseUrl = (settings.internalBaseUrl ?? "http://192.168.71.125/v1").replace(/\/$/, "");
+  const url = `${baseUrl}/chat-messages`;
+
+  // system 메시지를 지시사항으로, user 메시지를 query로 병합
+  const systemParts: string[] = [];
+  const userParts: string[] = [];
+  for (const msg of messages) {
+    if (msg.role === "system") {
+      systemParts.push(msg.content);
+    } else if (msg.role === "user") {
+      userParts.push(msg.content);
+    }
+  }
+  const query = systemParts.length > 0
+    ? `[지시사항]\n${systemParts.join("\n")}\n\n[요청]\n${userParts.join("\n")}`
+    : userParts.join("\n");
+
+  const difyPayload = {
+    inputs: {},
+    query,
+    response_mode: "blocking",
+    user: "auto-manual-generator",
+  };
+
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${settings.apiKey}`,
+        },
+        body: JSON.stringify(difyPayload),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.text().catch(() => "");
+        if (RETRYABLE_STATUS_CODES.has(response.status) && attempt < MAX_RETRIES) {
+          lastError = new Error(
+            `내부 AI 서버 요청 실패 (${response.status}): ${errorBody || response.statusText}`
+          );
+          await sleep(INITIAL_BACKOFF_MS * Math.pow(2, attempt));
+          continue;
+        }
+        throw new Error(
+          `내부 AI 서버 요청 실패 (${response.status}): ${errorBody || response.statusText}`
+        );
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const raw: any = await response.json();
+
+      // Dify 에러 응답 감지
+      if (raw?.code && raw?.message) {
+        throw new Error(`내부 AI 서버 오류: ${raw.message}`);
+      }
+
+      const answer: string = raw?.answer ?? "";
+      if (!answer) {
+        throw new Error("내부 AI 서버 응답에 answer가 없습니다.");
+      }
+
+      // Dify 응답을 AiResponse 형식으로 변환
+      const difyUsage = raw?.metadata?.usage;
+      const usage = normalizeUsage(difyUsage);
+      const finalUsage = fillEstimatedUsage(usage, messages, answer);
+
+      const data: AiResponse = {
+        id: raw?.message_id ?? raw?.id ?? "",
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: answer },
+            finish_reason: "stop",
+          },
+        ],
+        usage: finalUsage,
+      };
+      return data;
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err));
+      if (attempt < MAX_RETRIES) {
+        await sleep(INITIAL_BACKOFF_MS * Math.pow(2, attempt));
+        continue;
+      }
+    }
+  }
+
+  throw lastError ?? new Error("내부 AI 서버 호출 실패");
 }
 
 function sleep(ms: number): Promise<void> {
