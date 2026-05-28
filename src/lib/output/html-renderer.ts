@@ -113,7 +113,18 @@ function renderUsage(data: ClxParseResult, customTitle?: string): string {
 
   // AI 생성 텍스트가 있으면 파싱하여 렌더링
   if (data.aiUsageText) {
-    for (const raw of data.aiUsageText.split("\n")) {
+    // pre-pass: 다행에 걸쳐 있는 {MSG}...{/MSG} 블록을
+    //           한 행씩 {MSG}라인{/MSG} 형식으로 정규화
+    const normalizedText = data.aiUsageText.replace(
+      /\{MSG\}([\s\S]*?)\{\/MSG\}/g,
+      (_, inner: string) =>
+        inner.split('\n')
+          .map((l: string) => l.trim())
+          .filter(Boolean)
+          .map((l: string) => `{MSG}${l}{/MSG}`)
+          .join('\n')
+    );
+    for (const raw of normalizedText.split("\n")) {
       const line = raw.trim();
       if (!line) continue;
       // {B}기능명{/B} 패턴
@@ -122,6 +133,9 @@ function renderUsage(data: ClxParseResult, customTitle?: string): string {
         lines.push(`<span class="bold-tag">${escapeHtml(inner)}</span>`);
       } else if (/^Step\d+\./i.test(line)) {
         lines.push(`<p class="step">${escapeHtml(line)}</p>`);
+      } else if (/^\{MSG\}.+\{\/MSG\}$/.test(line)) {
+        const msgInner = line.replace(/^\{MSG\}/, "").replace(/\{\/MSG\}$/, "").replace(/^"|"$/g, "").trim();
+        lines.push(`<p class="msg-box">💬 "${escapeHtml(msgInner)}"</p>`);
       } else if (/^[*•※⚠]|^주의|^\[주의/.test(line)) {
         lines.push(`<p class="step note-warn">${escapeHtml(line)}</p>`);
       } else if (/^📌|^필수/.test(line)) {
@@ -131,33 +145,49 @@ function renderUsage(data: ClxParseResult, customTitle?: string): string {
       }
     }
 
+    // AI 텍스트에서 {B}...{/B} 소제목 집합 추출 (정밀 중복 검사용)
+    const aiSectionTitles = new Set(
+      [...(data.aiUsageText.matchAll(/\{B\}([^{]+?)\{\/B\}/g))].map(m => m[1].trim())
+    );
+
     // AI 텍스트에 언급되지 않은 extraButtons만 추가 (중복 방지)
     for (const btn of data.usage.extraButtons) {
-      if (data.aiUsageText.includes(btn.name)) continue;
+      if (aiSectionTitles.has(btn.name)) continue;
       lines.push(`<span class="bold-tag">${escapeHtml(btn.name)}</span>`);
       lines.push(...renderBtnStepLines(btn));
     }
 
-    // PatisTitleBar 기능 추가 (AI 텍스트에 미포함 시)
+    // PatisTitleBar 기능 추가 (AI 텍스트에 미포함된 항목만)
+    // 주의: aiSectionTitles에는 "{B}타이틀바 - 버튼명{/B}" 형태로 저장되므로
+    //       tbLabel 자체가 아닌 각 기능별 전체 제목으로 중복 여부를 판단해야 한다.
     for (const tb of data.usage.titleBars) {
       const tbLabel = tb.title || "상세 정보";
-      if (data.aiUsageText.includes(tbLabel)) continue;
-      if (tb.hasNew) {
+      // AI는 '{tbLabel} - 신규' 형식으로, fallback은 '{tbLabel} 신규' 형식으로 추가하므로
+      // 양쪽 모두 체크해야 중복 방지
+      if (tb.hasNew
+        && !aiSectionTitles.has(`${tbLabel} 신규`)
+        && !aiSectionTitles.has(`${tbLabel} - 신규`)) {
         lines.push(`<span class="bold-tag">${escapeHtml(tbLabel)} 신규</span>`);
         lines.push('<p class="step">Step1. 그리드 타이틀바의 \'신규\' 버튼을 클릭한다.</p>');
         lines.push('<p class="step">Step2. 필수 항목을 입력한다.</p>');
       }
-      if (tb.hasSave) {
+      if (tb.hasSave
+        && !aiSectionTitles.has(`${tbLabel} 저장`)
+        && !aiSectionTitles.has(`${tbLabel} - 저장`)) {
         lines.push(`<span class="bold-tag">${escapeHtml(tbLabel)} 저장</span>`);
         lines.push('<p class="step">Step1. 수정하고자 하는 자료를 입력한다.</p>');
         lines.push(`<p class="step">Step2. '${escapeHtml(tbLabel)}' 타이틀바의 '저장' 버튼을 클릭한다.</p>`);
       }
-      if (tb.hasDelete) {
+      if (tb.hasDelete
+        && !aiSectionTitles.has(`${tbLabel} 삭제`)
+        && !aiSectionTitles.has(`${tbLabel} - 삭제`)) {
         lines.push(`<span class="bold-tag">${escapeHtml(tbLabel)} 삭제</span>`);
         lines.push('<p class="step">Step1. 삭제하고자 하는 행을 선택한다.</p>');
         lines.push(`<p class="step">Step2. '${escapeHtml(tbLabel)}' 타이틀바의 '삭제' 버튼을 클릭한다.</p>`);
       }
       for (const btn of tb.extButtons) {
+        // "타이틀바 - 버튼명" 형식으로 AI가 이미 생성했으면 중복 추가 금지
+        if (aiSectionTitles.has(`${tbLabel} - ${btn.name}`)) continue;
         lines.push(`<span class="bold-tag">${escapeHtml(tbLabel)} - ${escapeHtml(btn.name)}</span>`);
         lines.push(...renderBtnStepLines(btn));
       }
@@ -606,6 +636,17 @@ const CSS_STYLES = `
     color: #475569;
     font-size: 12.5px;
     line-height: 1.65;
+  }
+  /* 시스템 출력 메시지 박스 */
+  .msg-box {
+    color: #78350f;
+    background: #fef9c3;
+    border-left: 3px solid #f59e0b;
+    padding: 5px 14px;
+    margin: 4px 0 4px 14px;
+    border-radius: 0 8px 8px 0;
+    font-size: 12.5px;
+    font-weight: 500;
   }
   /* 주의 메시지 */
   .note-warn {

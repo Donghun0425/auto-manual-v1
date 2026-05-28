@@ -83,6 +83,9 @@ function renderUsage(data: ClxParseResult, customTitle?: string): string {
         lines.push(`\n**${inner}**\n`);
       } else if (/^Step\d+\./i.test(line)) {
         lines.push(`- ${line}`);
+      } else if (/^\{MSG\}.+\{\/MSG\}$/.test(line)) {
+        const msgInner = line.replace(/^\{MSG\}/, "").replace(/\{\/MSG\}$/, "").replace(/^"|"$/g, "").trim();
+        lines.push(`> 💬 **"${msgInner}"**`);
       } else if (/^[*•※⚠]|^주의|^\[주의/.test(line)) {
         lines.push(`> ⚠️ ${line}`);
       } else if (/^📌|^필수/.test(line)) {
@@ -91,6 +94,24 @@ function renderUsage(data: ClxParseResult, customTitle?: string): string {
         lines.push(`- ${line}`);
       }
     }
+    // AI 텍스트에서 {B}...{/B} 소제목 집합 추출 (중복 방지)
+    const aiSectionTitles = new Set(
+      [...(data.aiUsageText.matchAll(/\{B\}([^{]+?)\{\/B\}/g))].map(m => m[1].trim())
+    );
+
+    // AI 텍스트에 미포함된 extraButtons 추가
+    for (const btn of data.usage.extraButtons) {
+      if (aiSectionTitles.has(btn.name)) continue;
+      lines.push(`\n**${btn.name}**\n`);
+      const desc = btn.description
+        ?? (btn.name === "닫기" || /close/i.test(btn.functionName)
+          ? "Step1. 현재 화면을 닫는다."
+          : `Step1. '${btn.name}' 버튼을 클릭한다.`);
+      for (const step of desc.split("\n")) {
+        if (step.trim()) lines.push(`- ${step.trim()}`);
+      }
+    }
+
     lines.push("");
     return lines.join("\n");
   }
