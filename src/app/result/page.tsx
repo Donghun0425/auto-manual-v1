@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
-import { FileCode2, BarChart3, Eye, AlignLeft, Info, ImageIcon, Upload, Trash2, ClipboardCopy, Check } from "lucide-react";
+import { useState, useRef, useCallback, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { FileCode2, BarChart3, Eye, AlignLeft, ImageIcon, Upload, Trash2, ClipboardCopy, Check } from "lucide-react";
 import { Container } from "@/components/layout/container";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,23 +16,31 @@ import { MarkdownView } from "@/components/result/markdown-view";
 import { FileResultSidebar } from "@/components/result/file-result-sidebar";
 import { DownloadBar } from "@/components/result/download-bar";
 import { useGenerationStore } from "@/stores/generation-store";
-import { DUMMY_RESULTS } from "@/components/result/dummy-data";
 
 export default function ResultPage() {
+  const router = useRouter();
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [screenImages, setScreenImages] = useState<Record<string, string>>({});
   const [copied, setCopied] = useState<string | null>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const generationResult = useGenerationStore((s) => s.result);
 
-  // 실제 생성 결과가 있으면 사용, 없으면 더미 데이터
-  const results = generationResult?.results && generationResult.results.length > 0
-    ? generationResult.results
-    : DUMMY_RESULTS;
-  const isRealData = Boolean(generationResult?.results && generationResult.results.length > 0);
+  const results = generationResult?.results ?? [];
+  const hasResults = results.length > 0;
   const current = results[selectedIndex];
 
   const totalTokens = results.reduce((sum, r) => sum + r.tokenUsage.total_tokens, 0);
+
+  // 결과가 있을 때 서버사이드 캐시에 저장 (PDF 스크린샷 스크립트용)
+  useEffect(() => {
+    if (generationResult) {
+      fetch("/api/result-cache", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ result: generationResult }),
+      }).catch(() => {});
+    }
+  }, [generationResult]);
 
   function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -55,11 +64,53 @@ export default function ResultPage() {
   }
 
   const handleCopy = useCallback((text: string, key: string) => {
-    navigator.clipboard.writeText(text).then(() => {
+    const onSuccess = () => {
       setCopied(key);
       setTimeout(() => setCopied(null), 1800);
-    });
+    };
+
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(onSuccess);
+    } else {
+      // HTTP 환경(비보안 컨텍스트) fallback
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      textarea.style.top = "-9999px";
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      try {
+        document.execCommand("copy");
+        onSuccess();
+      } catch {
+        // 복사 실패 시 무시
+      }
+      document.body.removeChild(textarea);
+    }
   }, []);
+
+  if (!hasResults) {
+    return (
+      <Container>
+        <PageHeader
+          title="결과"
+          description="분석 결과와 생성된 매뉴얼을 확인하고 다운로드하세요"
+        />
+        <div className="flex flex-col items-center justify-center gap-4 min-h-[400px] text-center">
+          <FileCode2 className="h-12 w-12 text-muted-foreground/40" />
+          <div>
+            <p className="text-base font-medium">생성된 결과가 없습니다</p>
+            <p className="text-sm text-muted-foreground mt-1">매뉴얼 생성 후 결과를 확인할 수 있습니다.</p>
+          </div>
+          <Button onClick={() => router.push("/generate")}>
+            매뉴얼 생성하러 가기
+          </Button>
+        </div>
+      </Container>
+    );
+  }
 
   return (
     <Container>
@@ -248,12 +299,6 @@ export default function ResultPage() {
       </div>
 
       <Separator className="my-8" />
-      {!isRealData && (
-        <p className="text-xs text-muted-foreground text-center flex items-center justify-center gap-1.5">
-          <Info className="h-3.5 w-3.5" aria-hidden="true" />
-          현재 더미 데이터를 표시하고 있습니다. 매뉴얼 생성 후 실제 결과가 표시됩니다.
-        </p>
-      )}
     </Container>
   );
 }

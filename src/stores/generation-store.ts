@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import type {
   GenerationOptions,
   GenerationProgress,
@@ -37,10 +38,12 @@ const defaultProgress: GenerationProgress = {
   errors: [],
 };
 
-export const useGenerationStore = create<GenerationState>((set, get) => ({
-  options: defaultOptions,
-  progress: defaultProgress,
-  result: null,
+export const useGenerationStore = create<GenerationState>()(
+  persist(
+    (set, get) => ({
+      options: defaultOptions,
+      progress: defaultProgress,
+      result: null,
 
   setOptions: (partial) =>
     set((state) => ({
@@ -117,4 +120,9 @@ export const useGenerationStore = create<GenerationState>((set, get) => ({
       progress: defaultProgress,
       result: null,
     }),
-}));
+  }),
+  {
+    name: "clx-generation-result",
+    partialize: (state) => ({ result: state.result }),
+  }
+));
