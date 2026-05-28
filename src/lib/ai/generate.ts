@@ -352,7 +352,9 @@ async function enrichUsageText(
 ): Promise<AiUsage> {
   // 기능이 없으면 스킵
   const menu = parseResult.usage.menuTitleBar;
-  const hasFeatures = menu.hasInquiry || menu.hasNew || menu.hasSave || menu.hasDelete || menu.extButtons.length > 0;
+  const hasFeatures =
+    menu.hasInquiry || menu.hasNew || menu.hasSave || menu.hasDelete ||
+    menu.extButtons.length > 0 || parseResult.usage.extraButtons.length > 0;
   if (!hasFeatures && parseResult.usage.titleBars.length === 0) return usage;
 
   const messages = buildUsagePrompt(parseResult);
@@ -362,6 +364,22 @@ async function enrichUsageText(
   if (text) {
     // 후처리 1: 소제목에 남은 '기능' 단어 제거
     text = text.replace(/\{B\}([^{]+?)\s+기능\s*\{\/B\}/g, "{B}$1{/B}");
+
+    // 후처리 1-1: PatisMenuTitleBar 추가버튼 접두사 제거
+    // ex) {B}PatisMenuTitleBar 추가버튼1 - 시간표출력{/B} → {B}시간표출력{/B}
+    // ex) {B}PatisMenuTitleBar - 시간표출력{/B}          → {B}시간표출력{/B}
+    text = text.replace(
+      /\{B\}PatisMenuTitleBar(?:\s+추가버튼\d+)?\s*[-–]\s*([^{]+?)\{\/B\}/g,
+      "{B}$1{/B}"
+    );
+
+    // 후처리 1-2: 함수 설명 전체가 소제목으로 남은 경우 괄호 안 레이블만 추출 (안전망)
+    // ex) {B}PatisMenuTitleBar 추가버튼1 클릭 전처리 함수 (전년도 자료복사){/B} → {B}전년도 자료복사{/B}
+    // ex) {B}추가버튼1 클릭 처리 함수 (선택일괄승인){/B}                        → {B}선택일괄승인{/B}
+    text = text.replace(
+      /\{B\}(?:PatisMenuTitleBar\s+)?추가버튼\d+[^(]*\(([^)]+)\)\{\/B\}/g,
+      "{B}$1{/B}"
+    );
 
     // 후처리 2: 파서 CRUD 플래그와 불일치하는 AI 생성 섹션 제거
     const forbiddenSections: string[] = [];
@@ -380,7 +398,82 @@ async function enrichUsageText(
       }
     }
 
+    // 후처리 2-1: PatisTitleBar ext 버튼이 "{B}타이틀바 - 버튼명{/B}" 형식으로 이미 존재하는데
+    // AI가 추가로 "{B}버튼명{/B}" 단독 섹션을 생성한 경우 제거
+    // (프롬프트에 extraButtons와 titleBars 양쪽에 동일 버튼이 노출되었을 때의 AI 중복 출력 방지)
+    for (const tb of parseResult.usage.titleBars) {
+      const tbLabel = (tb.title || "상세 정보").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      for (const btn of tb.extButtons) {
+        const btnName = btn.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        const hasTbFormat = new RegExp(`\\{B\\}${tbLabel}\\s*[-–]\\s*${btnName}\\s*\\{/B\\}`).test(text);
+        if (hasTbFormat) {
+          // 단독 "{B}버튼명{/B}" 섹션(+ 후속 Step 라인들) 제거
+          text = text.replace(
+            new RegExp(`\\{B\\}${btnName}\\{/B\\}\\n(?:Step\\d+\\.[^\\n]*\\n?)*`, "g"),
+            ""
+          );
+        }
+      }
+    }
+
     parseResult.aiUsageText = text;
+  }
+
+  // 후처리 3: features에 있지만 AI가 생성하지 않은 extraButtons를 정적 템플릿으로 보충
+  if (parseResult.aiUsageText) {
+    const generatedTitles = new Set(
+      [...(parseResult.aiUsageText.matchAll(/\{B\}([^{]+?)\{\/B\}/g))].map(m => m[1].trim())
+    );
+    const missingButtons = parseResult.usage.extraButtons.filter(
+      btn => !generatedTitles.has(btn.name)
+    );
+    if (missingButtons.length > 0) {
+      const supplement = missingButtons.map(btn => {
+        const desc = btn.description
+          ? btn.description
+          : `Step1. '${btn.name}' 버튼을 클릭한다.\nStep2. 처리 결과를 확인한다.`;
+        return `{B}${btn.name}{/B}\n${desc}`;
+      }).join("\n");
+      parseResult.aiUsageText = parseResult.aiUsageText.trimEnd() + "\n" + supplement;
+    }
+
+    // 후처리 4: AI가 프롬프트를 무시하고 구버전 패턴을 생성한 경우 변환 (안전망)
+    // 예) Step2. 개설년도를 입력하지 않은 경우 "개설년도를 입력해주시기 바랍니다." 메시지를 확인합니다.
+    //  → Step2. 개설년도를 입력하지 않은 경우 아래와 같은 메시지가 출력됩니다.
+    //     {MSG}개설년도를 입력해주시기 바랍니다.{/MSG}
+    parseResult.aiUsageText = parseResult.aiUsageText.replace(
+      /(Step\d+\.[^\n]+?)"([^"\n]+)" 메시지(?:를 확인합니다|가 표시됩니다|가 나타납니다)\./g,
+      "$1아래와 같은 메시지가 출력됩니다.\n{MSG}$2{/MSG}"
+    );
+
+    // 후처리 5: 동일한 소제목({B}...{/B}) 섹션이 중복 생성된 경우 첫 번째만 유지
+    // (예: 동일 이름 버튼이 여러 개일 때 AI가 중복 생성하는 경우)
+    const usageLines = parseResult.aiUsageText.split("\n");
+    const seenSectionTitles = new Set<string>();
+    const dedupedLines: string[] = [];
+    let skipDuplicateSection = false;
+
+    for (const line of usageLines) {
+      const sectionMatch = /^\{B\}(.+?)\{\/B\}$/.exec(line.trim());
+      if (sectionMatch) {
+        const sectionTitle = sectionMatch[1].trim();
+        if (seenSectionTitles.has(sectionTitle)) {
+          skipDuplicateSection = true;
+          continue;
+        }
+        seenSectionTitles.add(sectionTitle);
+        skipDuplicateSection = false;
+      } else if (skipDuplicateSection) {
+        // 중복 섹션에 속한 Step/MSG 라인 스킵
+        if (/^Step\d+\./i.test(line.trim()) || /^\{MSG\}/.test(line.trim()) || !line.trim()) {
+          continue;
+        }
+        // {B}도 Step도 아닌 라인 → 중복 섹션 종료
+        skipDuplicateSection = false;
+      }
+      dedupedLines.push(line);
+    }
+    parseResult.aiUsageText = dedupedLines.join("\n");
   }
 
   return addUsage(usage, response.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });

@@ -190,13 +190,14 @@ export function buildOverviewPrompt(parseResult: ClxParseResult): AiMessage[] {
 export function buildUsagePrompt(parseResult: ClxParseResult): AiMessage[] {
   const menu = parseResult.usage.menuTitleBar;
 
-  // 기능 목록 (MenuTitleBar CRUD + 추가 버튼)
+  // 기능 목록 (MenuTitleBar CRUD + 추가 버튼 + 독립 버튼)
   const features: string[] = [];
   if (menu.hasInquiry) features.push("조회");
   if (menu.hasNew) features.push("신규");
   if (menu.hasSave) features.push("저장");
   if (menu.hasDelete) features.push("삭제");
   for (const btn of menu.extButtons) features.push(btn.name);
+  for (const btn of parseResult.usage.extraButtons) features.push(btn.name);
 
   // PatisTitleBar 기능 목록
   const titleBarFeatureLines = parseResult.usage.titleBars.flatMap((tb) => {
@@ -223,13 +224,12 @@ export function buildUsagePrompt(parseResult: ClxParseResult): AiMessage[] {
     .slice(0, 4)
     .join(", ");
 
-  // 그리드 정보
+  // 그리드 정보 (title 없는 그리드는 제외: 내부 ID가 AI에 노출되는 것을 방지)
   const gridLines = parseResult.items.grids
-    .filter((g) => g.columns.length > 0)
+    .filter((g) => g.columns.length > 0 && g.title)
     .map((g) => {
-      const title = g.title || g.gridId;
       const cols = g.columns.slice(0, 4).map((c) => c.headerText).join(", ");
-      return `  - ${title}: ${cols}`;
+      return `  - ${g.title}: ${cols}`;
     })
     .join("\n");
 
@@ -251,22 +251,33 @@ export function buildUsagePrompt(parseResult: ClxParseResult): AiMessage[] {
     .filter(Boolean)
     .join(", ");
 
-  // 추가 버튼 상세 (description 우선 사용)
-  const extButtonDetails = menu.extButtons
-    .map((btn) => {
-      if (btn.description) {
-        return `  - ${btn.name}:\n${btn.description.split("\n").map(l => "    " + l).join("\n")}`;
-      }
-      const relatedValidations = parseResult.notes.validations
-        .filter((v) => v.message.includes(btn.name) || v.functionName.toLowerCase().includes(`ext${btn.index}`))
-        .map((v) => v.message.replace(/\\n/g, " "))
-        .slice(0, 3);
-      const detail = relatedValidations.length > 0
-        ? ` (관련 검증: ${relatedValidations.join(" / ")})`
-        : "";
-      return `  - ${btn.name}${detail}`;
-    })
-    .join("\n");
+  // 추가 버튼 상세 헬퍼 (description 우선, 없으면 관련 검증 메시지)
+  const formatBtnDetail = (btn: { name: string; functionName: string; index: number; description?: string }) => {
+    if (btn.description) {
+      return `  - ${btn.name}:\n${btn.description.split("\n").map(l => "    " + l).join("\n")}`;
+    }
+    const relatedValidations = parseResult.notes.validations
+      .filter((v) => v.message.includes(btn.name) || v.functionName.toLowerCase().includes(btn.functionName.toLowerCase()))
+      .map((v) => v.message.replace(/\\n/g, " "))
+      .slice(0, 3);
+    const detail = relatedValidations.length > 0
+      ? ` (관련 검증: ${relatedValidations.join(" / ")})`
+      : "";
+    return `  - ${btn.name}${detail}`;
+  };
+
+  // 추가 버튼 상세 (Form_ext* + 독립 버튼 모두 포함, 동일 이름 중복 제거)
+  const allExtraButtons = [
+    ...menu.extButtons,
+    ...parseResult.usage.extraButtons,
+  ];
+  const seenBtnNames = new Set<string>();
+  const dedupedExtraButtons = allExtraButtons.filter(btn => {
+    if (seenBtnNames.has(btn.name)) return false;
+    seenBtnNames.add(btn.name);
+    return true;
+  });
+  const extButtonDetails = dedupedExtraButtons.map(formatBtnDetail).join("\n");
 
   // 컨텍스트 조립
   const contextParts: string[] = [
@@ -302,7 +313,17 @@ Step2. 설명
 - 상단 메뉴 타이틀바의 삭제: 항목 선택 → 삭제 실행 → 확인 메시지 처리 흐름으로 작성
 - 그리드 타이틀바 기능은 소제목을 반드시 '{B}타이틀바명 - 기능명{/B}' 형식으로 작성하세요. 단, 신규/저장/삭제는 반드시 '제공 기능(그리드 타이틀바)' 목록에 해당 항목이 명시된 경우에만 작성하고, 목록에 없는 기능은 절대 추가하지 마세요
 - 추가 버튼: 사전 선택 조건 → 버튼 클릭 → 실행 결과 확인 흐름으로 작성하고, 관련 검증/주의사항이 있으면 Step에 반영하세요
-- 화면에 제공된 조회조건 항목명, 그리드 컬럼명, 검증 메시지를 Step 설명에 직접 활용하세요
+- '추가 버튼 상세'에 나열된 모든 버튼은 반드시 각자 {B}버튼명{/B} 섹션을 가져야 합니다. 누락 없이 모두 포함하세요
+- 화면에 제공된 조회조건 항목명, 그리드 컬럼명을 Step 설명에 직접 활용하세요
+- 검증/주의사항에 메시지가 있는 경우, 해당 Step에서는 먼저 사용자가 취해야 할 행동을 긍정문(~해야 합니다 / ~합니다)으로 설명하고, 그 다음에 조건 불충족 시 출력되는 메시지를 안내하세요
+  형식: "Step N. [사용자가 취해야 할 행동]. [조건 불충족 시] 아래와 같은 메시지가 출력됩니다.\n{MSG}메시지 내용{/MSG}"
+  예시1) Step2. 먼저 분반시간표 보기를 선택하여야 합니다. 선택하지 않은 경우 아래와 같은 메시지가 출력됩니다.
+         {MSG}분반시간표 보기로 선택하여 시간표변경을 진행해주시기 바랍니다.{/MSG}
+  예시2) Step3. 변경할 과목을 시간표에서 선택합니다. 선택하지 않은 경우 아래와 같은 메시지가 출력됩니다.
+         {MSG}변경할 과목을 시간표에서 선택해주시기 바랍니다.{/MSG}
+  예시3) Step1. 개설년도를 입력합니다. 입력하지 않은 경우 아래와 같은 메시지가 출력됩니다.
+         {MSG}개설년도를 입력해주시기 바랍니다.{/MSG}
+- "XXX 메시지를 확인합니다" 또는 "XXX 메시지가 표시됩니다" 형식은 절대 사용하지 마세요
 - 한국어로 작성하세요`,
     },
     {
