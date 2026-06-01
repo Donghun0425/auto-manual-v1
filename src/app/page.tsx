@@ -22,7 +22,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Container } from "@/components/layout/container";
-import { listRecentGenerationLogs } from "@/lib/supabase/queries/generation-log";
+import { listRecentManualResults } from "@/lib/supabase/queries/manual-result";
 
 const features = [
   {
@@ -88,17 +88,26 @@ const stats = [
 ];
 
 export default async function Home() {
-  // Supabase에서 최근 생성 로그 조회 (실패 시 빈 배열)
-  let recentHistory: { id: string; fileName: string; outputType: string; tokenUsage: number; createdAt: string }[] = [];
+  // Supabase에서 최근 생성 저장본 조회 (실패 시 빈 배열)
+  let recentHistory: {
+    id: string;
+    fileName: string;
+    outputTypes: string;
+    tokenUsage: number;
+    createdAt: string;
+  }[] = [];
   try {
-    const logs = await listRecentGenerationLogs(5);
-    recentHistory = logs.map((log) => ({
-      id: log.id,
-      fileName: log.file_name,
-      outputType: log.output_type.toUpperCase(),
-      tokenUsage: log.token_usage,
-      createdAt: new Date(log.created_at).toLocaleString("ko-KR"),
-    }));
+    const rows = await listRecentManualResults(5);
+    recentHistory = rows.map((row) => {
+      const usage = (row.token_usage ?? {}) as { total_tokens?: number };
+      return {
+        id: row.id,
+        fileName: row.file_name,
+        outputTypes: (row.output_formats ?? []).map((f) => f.toUpperCase()).join(" · ") || "-",
+        tokenUsage: usage.total_tokens ?? 0,
+        createdAt: new Date(row.generated_at).toLocaleString("ko-KR"),
+      };
+    });
   } catch {
     // DB 연결 실패 시 빈 히스토리
   }
@@ -204,7 +213,7 @@ export default async function Home() {
               )}
             </div>
             <Link
-              href="/result"
+              href="/history"
               className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors"
               aria-label="전체 결과 보기"
             >
@@ -222,7 +231,11 @@ export default async function Home() {
               <ul role="list" aria-label="최근 생성 히스토리 목록">
                 {recentHistory.map((item, index) => (
                   <li key={item.id}>
-                    <div className="flex items-center justify-between px-5 py-3.5 hover:bg-muted/50 transition-colors">
+                    <Link
+                      href={`/history?file=${encodeURIComponent(item.fileName)}`}
+                      className="flex items-center justify-between px-5 py-3.5 hover:bg-muted/50 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md"
+                      aria-label={`${item.fileName} 저장된 결과 불러오기`}
+                    >
                       <div className="flex items-center gap-3 min-w-0">
                         <FileCode2 className="h-4 w-4 text-blue-500 shrink-0" aria-hidden="true" />
                         <div className="min-w-0">
@@ -233,16 +246,16 @@ export default async function Home() {
                       <div className="flex items-center gap-4 shrink-0 ml-4">
                         <Badge variant="secondary" className="text-xs hidden sm:flex gap-1">
                           <Download className="h-3 w-3" aria-hidden="true" />
-                          {item.outputType}
+                          {item.outputTypes}
                         </Badge>
                         <span className="text-xs text-muted-foreground hidden md:block">
                           {item.tokenUsage.toLocaleString()} tokens
                         </span>
                         <Badge variant="outline" className="text-xs text-green-600 border-green-200 dark:border-green-800">
-                          완료
+                          불러오기
                         </Badge>
                       </div>
-                    </div>
+                    </Link>
                     {index < recentHistory.length - 1 && <Separator />}
                   </li>
                 ))}

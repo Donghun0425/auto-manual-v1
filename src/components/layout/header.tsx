@@ -2,8 +2,8 @@
 
 import * as React from "react"
 import Link from "next/link"
-import { usePathname } from "next/navigation"
-import { Moon, Sun, Menu, Building2 } from "lucide-react"
+import { usePathname, useRouter } from "next/navigation"
+import { Moon, Sun, Menu, Building2, ChevronDown } from "lucide-react"
 import { useTheme } from "next-themes"
 
 import { Button } from "@/components/ui/button"
@@ -14,17 +14,26 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 
-const navItems = [
+const topNavItems = [
   { label: "홈", href: "/" },
-  { label: "매뉴얼 생성", href: "/generate" },
-  { label: "매뉴얼 결과", href: "/result" },
-  { label: "생성결과 비교", href: "/compare" },
   { label: "단어사전", href: "/dictionary" },
   { label: "UDC 관리", href: "/udc-manager" },
   { label: "레이아웃 관리", href: "/layout-manager" },
-  { label: "이미지 관리", href: "/image-manager" },
+]
+
+const generateSubItems = [
+  { label: "매뉴얼 결과", href: "/result" },
+  { label: "매뉴얼 생성 결과 비교", href: "/compare" },
+  { label: "매뉴얼 생성 이력", href: "/history" },
+  { label: "매뉴얼 이미지 관리", href: "/image-manager" },
 ]
 
 function ThemeToggle() {
@@ -44,7 +53,13 @@ function ThemeToggle() {
 
 export function Header() {
   const pathname = usePathname()
+  const router = useRouter()
   const [open, setOpen] = React.useState(false)
+  const [mobileGenerateOpen, setMobileGenerateOpen] = React.useState(false)
+
+  const isGenerateActive =
+    pathname === "/generate" ||
+    generateSubItems.some((item) => pathname === item.href)
 
   return (
     <header className="bg-background/80 supports-backdrop-filter:backdrop-blur-md sticky top-0 z-40 border-b">
@@ -59,15 +74,60 @@ export function Header() {
 
         {/* 데스크톱 네비게이션 */}
         <nav className="hidden items-center gap-1 md:flex">
-          {navItems.map((item) => (
+          {/* 홈 */}
+          <Link
+            href="/"
+            className={cn(
+              "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted",
+              pathname === "/" ? "bg-muted text-foreground" : "text-muted-foreground"
+            )}
+          >
+            홈
+          </Link>
+
+          {/* 매뉴얼 생성 (드롭다운) */}
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              render={
+                <button
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted",
+                    isGenerateActive ? "bg-muted text-foreground" : "text-muted-foreground"
+                  )}
+                >
+                  매뉴얼 생성
+                  <ChevronDown className="size-3.5" />
+                </button>
+              }
+            />
+            <DropdownMenuContent align="start" className="min-w-[160px]">
+              <DropdownMenuItem
+                className={cn(pathname === "/generate" && "bg-accent")}
+                onClick={() => router.push("/generate")}
+              >
+                매뉴얼 생성
+              </DropdownMenuItem>
+              <div className="my-1 h-px bg-border" />
+              {generateSubItems.map((item) => (
+                <DropdownMenuItem
+                  key={item.href}
+                  className={cn(pathname === item.href && "bg-accent")}
+                  onClick={() => router.push(item.href)}
+                >
+                  {item.label}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+
+          {/* 나머지 최상위 메뉴 */}
+          {topNavItems.slice(1).map((item) => (
             <Link
               key={item.href}
               href={item.href}
               className={cn(
                 "rounded-lg px-3 py-1.5 text-sm font-medium transition-colors hover:bg-muted",
-                pathname === item.href
-                  ? "bg-muted text-foreground"
-                  : "text-muted-foreground"
+                pathname === item.href ? "bg-muted text-foreground" : "text-muted-foreground"
               )}
             >
               {item.label}
@@ -99,16 +159,76 @@ export function Header() {
                 </SheetTitle>
               </SheetHeader>
               <nav className="mt-6 flex flex-col gap-1 px-2">
-                {navItems.map((item) => (
+                {/* 홈 */}
+                <Link
+                  href="/"
+                  onClick={() => setOpen(false)}
+                  className={cn(
+                    "rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-muted",
+                    pathname === "/" ? "bg-muted text-foreground" : "text-muted-foreground"
+                  )}
+                >
+                  홈
+                </Link>
+
+                {/* 매뉴얼 생성 (아코디언) */}
+                <button
+                  onClick={() => setMobileGenerateOpen((v) => !v)}
+                  className={cn(
+                    "flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-muted",
+                    isGenerateActive ? "bg-muted text-foreground" : "text-muted-foreground"
+                  )}
+                >
+                  매뉴얼 생성
+                  <ChevronDown
+                    className={cn(
+                      "size-3.5 transition-transform",
+                      mobileGenerateOpen && "rotate-180"
+                    )}
+                  />
+                </button>
+
+                {mobileGenerateOpen && (
+                  <div className="ml-3 flex flex-col gap-0.5 border-l pl-3">
+                    <Link
+                      href="/generate"
+                      onClick={() => setOpen(false)}
+                      className={cn(
+                        "rounded-lg px-3 py-1.5 text-sm transition-colors hover:bg-muted",
+                        pathname === "/generate"
+                          ? "bg-muted text-foreground font-medium"
+                          : "text-muted-foreground"
+                      )}
+                    >
+                      매뉴얼 생성
+                    </Link>
+                    {generateSubItems.map((item) => (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        onClick={() => setOpen(false)}
+                        className={cn(
+                          "rounded-lg px-3 py-1.5 text-sm transition-colors hover:bg-muted",
+                          pathname === item.href
+                            ? "bg-muted text-foreground font-medium"
+                            : "text-muted-foreground"
+                        )}
+                      >
+                        {item.label}
+                      </Link>
+                    ))}
+                  </div>
+                )}
+
+                {/* 나머지 최상위 메뉴 */}
+                {topNavItems.slice(1).map((item) => (
                   <Link
                     key={item.href}
                     href={item.href}
                     onClick={() => setOpen(false)}
                     className={cn(
                       "rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-muted",
-                      pathname === item.href
-                        ? "bg-muted text-foreground"
-                        : "text-muted-foreground"
+                      pathname === item.href ? "bg-muted text-foreground" : "text-muted-foreground"
                     )}
                   >
                     {item.label}
