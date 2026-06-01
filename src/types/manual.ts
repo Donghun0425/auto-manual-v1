@@ -13,6 +13,7 @@ export interface GenerationOptions {
   outputFormats: OutputType[];
   layoutTemplateId?: string;
   useDictionary: boolean;
+  useUdcContext: boolean;
 }
 
 /** 매뉴얼 생성 진행 상태 */

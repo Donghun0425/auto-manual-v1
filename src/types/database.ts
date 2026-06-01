@@ -2,6 +2,22 @@
  * Supabase 데이터베이스 스키마 타입 정의
  */
 
+import type {
+  UdcComponent,
+  UdcComponentInsert,
+  UdcComponentUpdate,
+  UdcControl,
+  UdcControlInsert,
+  UdcProperty,
+  UdcPropertyInsert,
+  UdcFunction,
+  UdcFunctionInsert,
+  UdcDataset,
+  UdcDatasetInsert,
+  UdcUploadLog,
+  UdcUploadLogInsert,
+} from "./udc";
+
 /** 단어사전 테이블 — PK: (term, context_type) */
 export interface Dictionary {
   term: string;
@@ -128,6 +144,42 @@ export interface Database {
         Row: GenerationLog;
         Insert: GenerationLogInsert;
         Update: Partial<GenerationLogInsert>;
+        Relationships: [];
+      };
+      udc_component: {
+        Row: UdcComponent;
+        Insert: UdcComponentInsert;
+        Update: UdcComponentUpdate;
+        Relationships: [];
+      };
+      udc_control: {
+        Row: UdcControl;
+        Insert: UdcControlInsert;
+        Update: Partial<UdcControlInsert>;
+        Relationships: [];
+      };
+      udc_property: {
+        Row: UdcProperty;
+        Insert: UdcPropertyInsert;
+        Update: Partial<UdcPropertyInsert>;
+        Relationships: [];
+      };
+      udc_function: {
+        Row: UdcFunction;
+        Insert: UdcFunctionInsert;
+        Update: Partial<UdcFunctionInsert>;
+        Relationships: [];
+      };
+      udc_dataset: {
+        Row: UdcDataset;
+        Insert: UdcDatasetInsert;
+        Update: Partial<UdcDatasetInsert>;
+        Relationships: [];
+      };
+      udc_upload_log: {
+        Row: UdcUploadLog;
+        Insert: UdcUploadLogInsert;
+        Update: Partial<UdcUploadLogInsert>;
         Relationships: [];
       };
     };
