@@ -205,9 +205,9 @@ export function buildUsagePrompt(parseResult: ClxParseResult, udcHint = ""): AiM
   const titleBarFeatureLines = parseResult.usage.titleBars.flatMap((tb) => {
     const label = tb.title || "상세 정보";
     const feats: string[] = [];
-    if (tb.hasNew) feats.push(`  - ${label} 신규`);
-    if (tb.hasSave) feats.push(`  - ${label} 저장`);
-    if (tb.hasDelete) feats.push(`  - ${label} 삭제`);
+    if (tb.hasNew) feats.push(`  - ${label} - 신규`);
+    if (tb.hasSave) feats.push(`  - ${label} - 저장`);
+    if (tb.hasDelete) feats.push(`  - ${label} - 삭제`);
     for (const btn of tb.extButtons) feats.push(`  - ${label} - ${btn.name}`);
     return feats;
   });

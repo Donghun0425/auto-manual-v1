@@ -202,7 +202,7 @@ function renderInfoGroups(data: ClxParseResult, customTitle?: string, section?: 
 }
 
 function renderGrids(data: ClxParseResult, customTitle?: string, section?: LayoutSection): string {
-  const grids = data.items.grids;
+  const grids = data.items.grids.filter(g => !/EXCEL/i.test(g.gridId));
   if (grids.length === 0) return "";
 
   const title = customTitle || "그리드";

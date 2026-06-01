@@ -167,21 +167,21 @@ function renderUsage(data: ClxParseResult, customTitle?: string): string {
       if (tb.hasNew
         && !aiSectionTitles.has(`${tbLabel} 신규`)
         && !aiSectionTitles.has(`${tbLabel} - 신규`)) {
-        lines.push(`<span class="bold-tag">${escapeHtml(tbLabel)} 신규</span>`);
+        lines.push(`<span class="bold-tag">${escapeHtml(tbLabel)} - 신규</span>`);
         lines.push('<p class="step">Step1. 그리드 타이틀바의 \'신규\' 버튼을 클릭한다.</p>');
         lines.push('<p class="step">Step2. 필수 항목을 입력한다.</p>');
       }
       if (tb.hasSave
         && !aiSectionTitles.has(`${tbLabel} 저장`)
         && !aiSectionTitles.has(`${tbLabel} - 저장`)) {
-        lines.push(`<span class="bold-tag">${escapeHtml(tbLabel)} 저장</span>`);
+        lines.push(`<span class="bold-tag">${escapeHtml(tbLabel)} - 저장</span>`);
         lines.push('<p class="step">Step1. 수정하고자 하는 자료를 입력한다.</p>');
         lines.push(`<p class="step">Step2. '${escapeHtml(tbLabel)}' 타이틀바의 '저장' 버튼을 클릭한다.</p>`);
       }
       if (tb.hasDelete
         && !aiSectionTitles.has(`${tbLabel} 삭제`)
         && !aiSectionTitles.has(`${tbLabel} - 삭제`)) {
-        lines.push(`<span class="bold-tag">${escapeHtml(tbLabel)} 삭제</span>`);
+        lines.push(`<span class="bold-tag">${escapeHtml(tbLabel)} - 삭제</span>`);
         lines.push('<p class="step">Step1. 삭제하고자 하는 행을 선택한다.</p>');
         lines.push(`<p class="step">Step2. '${escapeHtml(tbLabel)}' 타이틀바의 '삭제' 버튼을 클릭한다.</p>`);
       }
@@ -363,7 +363,7 @@ function renderInfoGroups(data: ClxParseResult, customTitle?: string, section?: 
 }
 
 function renderGrids(data: ClxParseResult, customTitle?: string, section?: LayoutSection): string {
-  const grids = data.items.grids;
+  const grids = data.items.grids.filter(g => !/EXCEL/i.test(g.gridId));
   if (grids.length === 0) return "";
 
   const showTable = section?.options?.showTable !== false;
