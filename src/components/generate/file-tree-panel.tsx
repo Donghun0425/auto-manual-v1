@@ -1,8 +1,9 @@
 "use client";
 
-import { FileCode2, Folder, FolderOpen, Minus, Square, CheckSquare } from "lucide-react";
+import { FileCode2, Folder, FolderOpen, Minus, Square, CheckSquare, Database, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useFileTreeStore } from "@/stores/file-tree-store";
 import type { FileNode, CheckState } from "@/types";
 
 // ── 개별 체크박스 아이콘 ──────────────────────────────────────
@@ -12,6 +13,46 @@ function CheckIcon({ state }: { state: CheckState }) {
   if (state === "indeterminate")
     return <Minus className="h-4 w-4 text-primary shrink-0" aria-hidden="true" />;
   return <Square className="h-4 w-4 text-muted-foreground shrink-0" aria-hidden="true" />;
+}
+
+// ── 저장본 재사용/새로생성 토글 ───────────────────────────────
+function ReuseToggle({ node }: { node: FileNode }) {
+  const saved = useFileTreeStore((s) => s.savedByFileName[node.name]);
+  const reuse = useFileTreeStore((s) => s.reuseByPath[node.path]);
+  const setReuse = useFileTreeStore((s) => s.setReuse);
+
+  if (!saved) return null; // 저장본 없으면 토글 숨김 (항상 새로 생성)
+
+  const isReuse = reuse !== false; // 저장본 있으면 기본 재사용
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        setReuse(node.path, !isReuse);
+      }}
+      className={cn(
+        "flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium shrink-0 border transition-colors",
+        isReuse
+          ? "text-green-700 border-green-300 bg-green-50 dark:text-green-400 dark:border-green-800 dark:bg-green-950"
+          : "text-amber-700 border-amber-300 bg-amber-50 dark:text-amber-400 dark:border-amber-800 dark:bg-amber-950"
+      )}
+      title={isReuse ? "기존 저장본을 재사용합니다 (클릭 시 새로 생성)" : "새로 생성합니다 (클릭 시 저장본 재사용)"}
+      aria-label={`${node.name} ${isReuse ? "재사용" : "새로 생성"}`}
+    >
+      {isReuse ? (
+        <>
+          <Database className="h-3 w-3" aria-hidden="true" />
+          재사용
+        </>
+      ) : (
+        <>
+          <RefreshCw className="h-3 w-3" aria-hidden="true" />
+          새로 생성
+        </>
+      )}
+    </button>
+  );
 }
 
 // ── 재귀 트리 노드 ────────────────────────────────────────────
@@ -72,11 +113,14 @@ function TreeNode({ node, depth, expandedIds, onToggleCheck, onToggleExpand }: T
           <div className="flex items-center gap-1.5 flex-1 min-w-0">
             <FileCode2 className="h-4 w-4 text-blue-500 shrink-0" aria-hidden="true" />
             <span className="text-sm truncate">{node.name}</span>
-            {node.size !== undefined && (
-              <span className="text-xs text-muted-foreground ml-auto shrink-0">
-                {(node.size / 1024).toFixed(1)}KB
-              </span>
-            )}
+            <div className="ml-auto flex items-center gap-2 shrink-0">
+              <ReuseToggle node={node} />
+              {node.size !== undefined && (
+                <span className="text-xs text-muted-foreground">
+                  {(node.size / 1024).toFixed(1)}KB
+                </span>
+              )}
+            </div>
           </div>
         )}
       </div>

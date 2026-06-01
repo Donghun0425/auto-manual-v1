@@ -61,6 +61,34 @@ export default function GeneratePage() {
 
       setExpandedIds((prev) => new Set([...prev, ...folderIds]));
       addFiles(uploaded, nodes);
+
+      // 업로드된 파일들의 DB 저장본 존재 여부 조회 → 뱃지/재사용 기본값 설정
+      const allNames = Array.from(
+        new Set(useFileTreeStore.getState().uploadedFiles.map((f) => f.name))
+      );
+      if (allNames.length > 0) {
+        try {
+          const res = await fetch(
+            `/api/manual-result?fileNames=${encodeURIComponent(allNames.join(","))}`
+          );
+          if (res.ok) {
+            const data = (await res.json()) as {
+              summaries?: {
+                id: string;
+                fileName: string;
+                sourceHash: string;
+                outputFormats: string[];
+                generatedAt: string;
+              }[];
+            };
+            if (data.summaries) {
+              useFileTreeStore.getState().setSavedSummaries(data.summaries);
+            }
+          }
+        } catch {
+          // 조회 실패 무시 (DB 미설정 등)
+        }
+      }
     } finally {
       setIsProcessing(false);
     }
@@ -100,8 +128,14 @@ export default function GeneratePage() {
     const { startGeneration, updateProgress, addResult, addError, completeGeneration } = useGenerationStore.getState();
     startGeneration(selectedFiles.length);
 
+    const { reuseByPath, savedByFileName } = useFileTreeStore.getState();
     const body: GenerateRequestBody = {
-      files: selectedFiles.map((f) => ({ path: f.path, content: f.content })),
+      files: selectedFiles.map((f) => ({
+        path: f.path,
+        content: f.content,
+        // 저장본이 있고 사용자가 새로생성으로 끄지 않았으면 재사용
+        reuse: !!savedByFileName[f.name] && reuseByPath[f.path] !== false,
+      })),
       settings,
       useDictionary: options.useDictionary,
       useUdcContext: options.useUdcContext,
@@ -130,6 +164,19 @@ export default function GeneratePage() {
         }
         completeGeneration(data.duration);
         updateProgress({ status: data.errors.length > 0 && data.results.length === 0 ? "error" : "completed" });
+
+        // 새로 저장된 결과를 반영하기 위해 저장본 메타 재조회
+        const allNames = Array.from(
+          new Set(useFileTreeStore.getState().uploadedFiles.map((f) => f.name))
+        );
+        if (allNames.length > 0) {
+          fetch(`/api/manual-result?fileNames=${encodeURIComponent(allNames.join(","))}`)
+            .then((r) => (r.ok ? r.json() : null))
+            .then((d) => {
+              if (d?.summaries) useFileTreeStore.getState().setSavedSummaries(d.summaries);
+            })
+            .catch(() => {});
+        }
 
         // VS Code 프록시 / 내부 AI 결과는 비교 스토어에도 자동 저장
         const provider = settings.provider;
