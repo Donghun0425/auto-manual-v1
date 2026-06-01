@@ -14,10 +14,21 @@ import {
   MousePointer2,
   Package,
 } from "lucide-react";
+import { ArrowLeft, CornerDownRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
-import type { ClxParseResult } from "@/types";
+import type { ClxParseResult, ManualResult } from "@/types";
+
+/** 화면 간 이동 네비게이션 (탭/팝업 상호 링크) */
+export interface ScreenNav {
+  results: ManualResult[];
+  resolveIndexByUri: (uri: string) => number | undefined;
+  onNavigate: (index: number) => void;
+  /** 현재 화면이 자식(탭/팝업)일 때 부모(메인) 인덱스 */
+  parentIndex?: number;
+  parentLabel?: string;
+}
 
 // ── 아코디언 섹션 래퍼 ────────────────────────────────────────
 interface SectionProps {
@@ -98,9 +109,10 @@ function SimpleTable({ headers, rows }: { headers: string[]; rows: (string | Rea
 // ── 분석결과 아코디언 ─────────────────────────────────────────
 interface ParseResultAccordionProps {
   result: ClxParseResult;
+  nav?: ScreenNav;
 }
 
-export function ParseResultAccordion({ result }: ParseResultAccordionProps) {
+export function ParseResultAccordion({ result, nav }: ParseResultAccordionProps) {
   const { overview, usage, notes, items, tabPages, popups, usedUdcs } = result;
   const allExtButtons = [
     ...usage.menuTitleBar.extButtons,
@@ -108,8 +120,49 @@ export function ParseResultAccordion({ result }: ParseResultAccordionProps) {
     ...usage.extraButtons,
   ];
 
+  // 자식 화면(탭/팝업) URI → 결과 인덱스 해석 후 이동 버튼/요약 렌더
+  const renderNavCell = (uri: string) => {
+    const idx = nav?.resolveIndexByUri(uri);
+    if (idx === undefined) {
+      return <span className="text-muted-foreground text-xs">미생성</span>;
+    }
+    return (
+      <button
+        type="button"
+        onClick={() => nav!.onNavigate(idx)}
+        className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+      >
+        이동 <CornerDownRight className="h-3 w-3" aria-hidden="true" />
+      </button>
+    );
+  };
+
+  const childSummary = (uri: string) => {
+    const idx = nav?.resolveIndexByUri(uri);
+    if (idx === undefined || !nav) return null;
+    const ov = nav.results[idx]?.parseResult.overview;
+    if (!ov) return null;
+    return (
+      <span className="text-xs text-muted-foreground">
+        {ov.programName || nav.results[idx].fileName}
+        {ov.description ? ` — ${ov.description}` : ""}
+      </span>
+    );
+  };
+
   return (
     <div className="space-y-2" aria-label="CLX 파싱 결과">
+      {/* 메인 화면으로 돌아가기 (현재가 탭/팝업일 때) */}
+      {nav?.parentIndex !== undefined && (
+        <button
+          type="button"
+          onClick={() => nav.onNavigate(nav.parentIndex!)}
+          className="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline mb-1"
+        >
+          <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
+          메인 화면으로 돌아가기{nav.parentLabel ? ` (${nav.parentLabel})` : ""}
+        </button>
+      )}
       {/* 화면개요 */}
       <Section id="overview" icon={<LayoutDashboard className="h-4 w-4" />} title="화면개요" defaultOpen>
         <div className="grid sm:grid-cols-2 gap-2 text-sm">
@@ -279,12 +332,14 @@ export function ParseResultAccordion({ result }: ParseResultAccordionProps) {
       {/* 팝업 */}
       <Section id="popups" icon={<Layers className="h-4 w-4" />} title="팝업" badge={popups.length}>
         <SimpleTable
-          headers={["팝업 ID", "URL", "콜백", "크기"]}
+          headers={["팝업 ID", "URL", "콜백", "크기", "화면", "이동"]}
           rows={popups.map((p) => [
             <code key="pid" className="font-mono text-xs">{p.popupId}</code>,
             <code key="url" className="font-mono text-xs">{p.popupUrl}</code>,
             <code key="cb" className="font-mono text-xs">{p.callbackFunction}</code>,
             `${p.width}×${p.height}`,
+            childSummary(p.popupUrl) ?? "-",
+            renderNavCell(p.popupUrl),
           ])}
         />
         {popups.length === 0 && <p className="text-sm text-muted-foreground">팝업 없음</p>}
@@ -296,11 +351,13 @@ export function ParseResultAccordion({ result }: ParseResultAccordionProps) {
           <p className="text-sm text-muted-foreground">탭 없음</p>
         ) : (
           <SimpleTable
-            headers={["앱 URI", "탭명", "호출위치"]}
+            headers={["앱 URI", "탭명", "호출위치", "화면", "이동"]}
             rows={tabPages.map((tp) => [
               <code key="uri" className="font-mono text-xs">{tp.appUri}</code>,
               tp.tabLabel || "-",
               tp.calledFrom,
+              childSummary(tp.appUri) ?? "-",
+              renderNavCell(tp.appUri),
             ])}
           />
         )}

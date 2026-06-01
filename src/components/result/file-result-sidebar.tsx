@@ -1,56 +1,138 @@
 "use client";
 
-import { FileCode2, CheckCircle2 } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import * as React from "react";
+import { FileCode2, CheckCircle2, Layers, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ManualResult } from "@/types";
+import type { ScreenGroupView, ScreenGroupChild } from "@/lib/result/screen-group";
 
 interface FileResultSidebarProps {
   results: ManualResult[];
+  groups: ScreenGroupView[];
   selectedIndex: number;
   onSelect: (index: number) => void;
 }
 
-export function FileResultSidebar({ results, selectedIndex, onSelect }: FileResultSidebarProps) {
+function NodeButton({
+  index,
+  fileName,
+  label,
+  tokens,
+  selected,
+  depth,
+  icon,
+  onSelect,
+}: {
+  index: number;
+  fileName: string;
+  label?: string;
+  tokens?: number;
+  selected: boolean;
+  depth: number;
+  icon: React.ReactNode;
+  onSelect: (index: number) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(index)}
+      className={cn(
+        "w-full flex items-start gap-2.5 px-3 py-2 rounded-lg text-left transition-colors",
+        selected ? "bg-primary/10 text-primary" : "hover:bg-muted/60 text-foreground"
+      )}
+      style={{ paddingLeft: depth > 0 ? `${depth * 16 + 12}px` : undefined }}
+      aria-current={selected ? "page" : undefined}
+      aria-label={`${fileName} 결과 보기`}
+    >
+      <span className={cn("shrink-0 mt-0.5", selected ? "text-primary" : "text-blue-500")} aria-hidden="true">
+        {icon}
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-xs font-medium truncate">{label || fileName}</p>
+        {label && <p className="text-[10px] text-muted-foreground truncate">{fileName}</p>}
+        {typeof tokens === "number" && (
+          <div className="flex items-center gap-1.5 mt-1">
+            <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" aria-hidden="true" />
+            <span className="text-[10px] text-muted-foreground">
+              {tokens.toLocaleString()} tokens
+            </span>
+          </div>
+        )}
+      </div>
+    </button>
+  );
+}
+
+function ChildSection({
+  title,
+  items,
+  selectedIndex,
+  onSelect,
+}: {
+  title: string;
+  items: ScreenGroupChild[];
+  selectedIndex: number;
+  onSelect: (index: number) => void;
+}) {
+  return (
+    <div className="mt-1">
+      <p className="px-3 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70 mt-1.5 mb-0.5">
+        {title} ({items.length})
+      </p>
+      <ul className="space-y-0.5">
+        {items.map((child) => (
+          <li key={child.fileName}>
+            <NodeButton
+              index={child.index}
+              fileName={child.fileName}
+              label={child.label}
+              selected={selectedIndex === child.index}
+              depth={1}
+              icon={<ExternalLink className="h-3.5 w-3.5" />}
+              onSelect={onSelect}
+            />
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+export function FileResultSidebar({ results, groups, selectedIndex, onSelect }: FileResultSidebarProps) {
   return (
     <nav aria-label="파일별 결과 목록">
       <p className="text-xs font-medium text-muted-foreground mb-2 px-1">
-        분석 파일 ({results.length}개)
+        분석 파일 ({results.length}개 · {groups.length}개 화면)
       </p>
-      <ul className="space-y-1">
-        {results.map((result, index) => (
-          <li key={result.filePath}>
-            <button
-              type="button"
-              onClick={() => onSelect(index)}
-              className={cn(
-                "w-full flex items-start gap-2.5 px-3 py-2.5 rounded-lg text-left transition-colors",
-                selectedIndex === index
-                  ? "bg-primary/10 text-primary"
-                  : "hover:bg-muted/60 text-foreground"
+      <ul className="space-y-3">
+        {groups.map((group) => {
+          const hasChildren = group.tabs.length > 0 || group.popups.length > 0;
+          return (
+            <li key={group.groupKey} className={cn(hasChildren && "rounded-lg border border-border/60 p-1.5")}>
+              {group.mainIndex !== null ? (
+                <NodeButton
+                  index={group.mainIndex}
+                  fileName={group.mainFileName}
+                  label={hasChildren ? group.mainLabel : undefined}
+                  tokens={results[group.mainIndex]?.tokenUsage.total_tokens}
+                  selected={selectedIndex === group.mainIndex}
+                  depth={0}
+                  icon={hasChildren ? <Layers className="h-4 w-4" /> : <FileCode2 className="h-4 w-4" />}
+                  onSelect={onSelect}
+                />
+              ) : (
+                <p className="px-3 py-1 text-[11px] font-medium text-muted-foreground">{group.groupKey}</p>
               )}
-              aria-current={selectedIndex === index ? "page" : undefined}
-              aria-label={`${result.fileName} 결과 보기`}
-            >
-              <FileCode2
-                className={cn(
-                  "h-4 w-4 shrink-0 mt-0.5",
-                  selectedIndex === index ? "text-primary" : "text-blue-500"
-                )}
-                aria-hidden="true"
-              />
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-medium truncate">{result.fileName}</p>
-                <div className="flex items-center gap-1.5 mt-1">
-                  <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" aria-hidden="true" />
-                  <span className="text-xs text-muted-foreground">
-                    {result.tokenUsage.total_tokens.toLocaleString()} tokens
-                  </span>
-                </div>
-              </div>
-            </button>
-          </li>
-        ))}
+
+              {group.tabs.length > 0 && (
+                <ChildSection title="탭페이지" items={group.tabs} selectedIndex={selectedIndex} onSelect={onSelect} />
+              )}
+              {group.popups.length > 0 && (
+                <ChildSection title="팝업" items={group.popups} selectedIndex={selectedIndex} onSelect={onSelect} />
+              )}
+            </li>
+          );
+        })}
       </ul>
     </nav>
   );

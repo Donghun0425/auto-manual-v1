@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { FileCode2, BarChart3, Eye, AlignLeft, ImageIcon, Upload, Trash2, ClipboardCopy, Check, GitCompare, CheckCircle2 } from "lucide-react";
 import { Container } from "@/components/layout/container";
@@ -15,6 +15,8 @@ import { HtmlPreview } from "@/components/result/html-preview";
 import { MarkdownView } from "@/components/result/markdown-view";
 import { FileResultSidebar } from "@/components/result/file-result-sidebar";
 import { DownloadBar } from "@/components/result/download-bar";
+import { buildScreenGroups, baseNameOf } from "@/lib/result/screen-group";
+import { getScreenImageUrlMap } from "@/lib/supabase/queries/screen-image";
 import { useGenerationStore } from "@/stores/generation-store";
 import { useCompareStore } from "@/stores/compare-store";
 import { useAiSettingsStore } from "@/stores/ai-settings-store";
@@ -42,6 +44,9 @@ export default function ResultPage() {
   const hasResults = results.length > 0;
   const current = results[selectedIndex];
 
+  // 화면 그룹 모델 (메인↔탭↔팝업 계층 + 상호 이동)
+  const screenGroups = useMemo(() => buildScreenGroups(results), [results]);
+
   const totalTokens = results.reduce((sum, r) => sum + r.tokenUsage.total_tokens, 0);
 
   // 결과가 있을 때 서버사이드 캐시에 저장 (PDF 스크린샷 스크립트용)
@@ -54,6 +59,30 @@ export default function ResultPage() {
       }).catch(() => {});
     }
   }, [generationResult]);
+
+  // 이미지 관리 페이지에 업로드된 화면 이미지를 결과에 자동 적용
+  // (file_base 매칭). 수동 업로드한 항목은 덮어쓰지 않음(공존).
+  useEffect(() => {
+    if (results.length === 0) return;
+    let cancelled = false;
+    getScreenImageUrlMap()
+      .then((urlMap) => {
+        if (cancelled) return;
+        setScreenImages((prev) => {
+          const next = { ...prev };
+          for (const r of results) {
+            if (next[r.fileName]) continue; // 수동 업로드 우선
+            const url = urlMap[baseNameOf(r.filePath || r.fileName)];
+            if (url) next[r.fileName] = url;
+          }
+          return next;
+        });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [results]);
 
   function handleSaveToCompare() {
     if (!generationResult || !isComparableProvider) return;
@@ -188,6 +217,7 @@ export default function ResultPage() {
             <CardContent className="p-3">
               <FileResultSidebar
                 results={results}
+                groups={screenGroups.groups}
                 selectedIndex={selectedIndex}
                 onSelect={setSelectedIndex}
               />
@@ -278,7 +308,19 @@ export default function ResultPage() {
                 />
               </div>
 
-              <ParseResultAccordion result={current.parseResult} />
+              <ParseResultAccordion
+                result={current.parseResult}
+                nav={{
+                  results,
+                  resolveIndexByUri: screenGroups.resolveIndexByUri,
+                  onNavigate: setSelectedIndex,
+                  parentIndex: screenGroups.getParentIndex(selectedIndex),
+                  parentLabel:
+                    screenGroups.getParentIndex(selectedIndex) !== undefined
+                      ? results[screenGroups.getParentIndex(selectedIndex)!]?.fileName
+                      : undefined,
+                }}
+              />
             </TabsContent>
 
             {/* HTML 미리보기 탭 */}
