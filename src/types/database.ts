@@ -124,6 +124,40 @@ export interface GenerationLogInsert {
 /** 출력 형식 */
 export type OutputType = "html" | "md";
 
+/** 매뉴얼 생성 결과 저장 테이블 — 식별 키: (file_name, source_hash) */
+export interface ManualResultRow {
+  id: string;
+  file_name: string;
+  source_hash: string;
+  file_path: string;
+  /** ClxParseResult 직렬화 (JSONB) */
+  parse_result: unknown;
+  html_content: string | null;
+  markdown_content: string | null;
+  /** AiUsage 직렬화 (JSONB) */
+  token_usage: unknown;
+  output_formats: OutputType[];
+  generated_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 매뉴얼 생성 결과 등록 입력 */
+export interface ManualResultInsert {
+  file_name: string;
+  source_hash: string;
+  file_path?: string;
+  parse_result: unknown;
+  html_content?: string | null;
+  markdown_content?: string | null;
+  token_usage?: unknown;
+  output_formats?: OutputType[];
+  generated_at?: string;
+}
+
+/** 매뉴얼 생성 결과 수정 입력 */
+export type ManualResultUpdate = Partial<ManualResultInsert>;
+
 /** Supabase Database 전체 스키마 */
 export interface Database {
   public: {
@@ -144,6 +178,12 @@ export interface Database {
         Row: GenerationLog;
         Insert: GenerationLogInsert;
         Update: Partial<GenerationLogInsert>;
+        Relationships: [];
+      };
+      manual_result: {
+        Row: ManualResultRow;
+        Insert: ManualResultInsert;
+        Update: ManualResultUpdate;
         Relationships: [];
       };
       udc_component: {

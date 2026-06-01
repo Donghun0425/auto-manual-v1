@@ -31,6 +31,9 @@ export type {
   GenerationLog,
   GenerationLogInsert,
   OutputType,
+  ManualResultRow,
+  ManualResultInsert,
+  ManualResultUpdate,
   Database,
 } from "./database";
 
