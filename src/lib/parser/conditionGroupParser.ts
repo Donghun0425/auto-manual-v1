@@ -247,22 +247,35 @@ function parseBodyControls(body: string, fullContent: string): Array<{
       const valRe = new RegExp(`${varName}\\.value\\s*=\\s*"([^"]+)"`);
       const valM = valRe.exec(outerBody);
       if (valM) labelValue = normalizeLabel(valM[1]);
+    } else if (type === 'Button') {
+      // 처리조건 내 버튼: .value = "..." 로 표시 라벨 추출
+      const valRe = new RegExp(`${varName}\\.value\\s*=\\s*"([^"]+)"`);
+      const valM = valRe.exec(outerBody);
+      if (valM) labelValue = normalizeLabel(valM[1]);
     } else if (type === 'CheckBox') {
-      const textRe = new RegExp(`${varName}\\.text\\s*=\\s*"([^"]+)"`);
+      const textRe = new RegExp(`${varName}\.text\s*=\s*"([^"]+)"`);
       const textM = textRe.exec(outerBody);
       if (textM) {
         labelValue = normalizeLabel(textM[1]);
       } else {
         const lookupRe = new RegExp(
-          `app\\.lookup\\("${controlId}"\\)\\.text\\s*=\\s*"([^"]+)"`,
+          `app\.lookup\("${controlId}"\)\.text\s*=\s*"([^"]+)"`,
         );
         const lookupM = lookupRe.exec(fullContent);
         if (lookupM) labelValue = normalizeLabel(lookupM[1]);
       }
     } else if (isUdcType(fType) && !OUTPUT_LABEL_UDCS.has(type)) {
-      const udcInfo = UDC_REGISTRY[type];
-      const udcLabel = findUdcLabelFromFullContent(fullContent, controlId, udcInfo);
-      labelValue = udcLabel ?? '';
+      // PatisFileToList: buttonText 속성 대입 방식 우선 처리 (함수 호출 아님)
+      if (type === 'PatisFileToList') {
+        const btnTextRe = new RegExp(`${varName}\\.buttonText\\s*=\\s*"([^"]+)"`);
+        const btnTextM = btnTextRe.exec(outerBody);
+        if (btnTextM) labelValue = normalizeLabel(btnTextM[1]);
+      }
+      if (!labelValue) {
+        const udcInfo = UDC_REGISTRY[type];
+        const udcLabel = findUdcLabelFromFullContent(fullContent, controlId, udcInfo);
+        labelValue = udcLabel ?? '';
+      }
     }
 
     const isReadOnly = new RegExp(`${varName}\\.readOnly\\s*=\\s*true`).test(outerBody);
@@ -293,7 +306,16 @@ function parseBodyControls(body: string, fullContent: string): Array<{
 /**
  * 파싱된 컨트롤 목록에서 라벨-입력쌍 구성
  */
-function buildPairs(controls: ReturnType<typeof parseBodyControls>): ConditionControlInfo[] {
+/** 처리조건/일괄처리 그룹에서 버튼 역할을 하는 컨트롤 타입 */
+const ACTION_TYPES = new Set(['Button', 'PatisFileToList']);
+
+function buildPairs(
+  controls: ReturnType<typeof parseBodyControls>,
+  groupType: ConditionGroupInfo['groupType'],
+): ConditionControlInfo[] {
+  // CONDITIONGROUP(처리조건)만 단독 액션 항목으로 처리; BATCH_GROUP(일괄처리) 버튼은 extraButtons 경로로 사용방법에 표기
+  const isActionGroup = groupType === '처리조건';
+
   const rowMap = new Map<number, {
     labels: typeof controls;
     inputs: typeof controls;
@@ -304,7 +326,8 @@ function buildPairs(controls: ReturnType<typeof parseBodyControls>): ConditionCo
     const row = rowMap.get(ctrl.rowIndex)!;
     if (ctrl.controlType === 'Output') {
       row.labels.push(ctrl);
-    } else if (!SKIP_TYPES.has(ctrl.controlType)) {
+    } else if (!SKIP_TYPES.has(ctrl.controlType) && !(isActionGroup && ACTION_TYPES.has(ctrl.controlType))) {
+      // 처리조건/일괄처리 내 액션 타입은 입력 페어링 제외 (별도 액션 항목으로 처리)
       row.inputs.push(ctrl);
     }
   }
@@ -389,6 +412,21 @@ function buildPairs(controls: ReturnType<typeof parseBodyControls>): ConditionCo
         description: '',
         controlType: input.controlType,
         inputType: (input.isReadOnly || input.isDisabled) ? '표시' : '입력',
+      });
+    }
+  }
+
+  // 처리조건/일괄처리: 라벨이 있는 액션 컨트롤(Button, PatisFileToList)을 별도 항목으로 추가
+  if (isActionGroup) {
+    for (const ctrl of controls) {
+      if (!ACTION_TYPES.has(ctrl.controlType)) continue;
+      if (!ctrl.labelValue) continue;
+      result.push({
+        controlId: ctrl.controlId,
+        labelText: ctrl.labelValue,
+        description: '',
+        controlType: ctrl.controlType,
+        inputType: '실행',
       });
     }
   }
@@ -498,7 +536,7 @@ export function parseConditionGroups(content: string): ConditionGroupInfo[] {
     }
 
     const controls = parseBodyControls(body, content);
-    const pairs = buildPairs(controls);
+    const pairs = buildPairs(controls, groupType);
 
     if (pairs.length > 0 || groupTitle) {
       groups.push({ groupId, groupType, title: groupTitle, controls: pairs });

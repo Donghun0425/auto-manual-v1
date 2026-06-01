@@ -111,7 +111,16 @@ export function analyzeFile(filePath: string, content: string): ClxParseResult {
     ...menuTitleBar.extButtons.map(b => b.name),
     ...titleBars.flatMap(tb => tb.extButtons.map(b => b.name)),
   ]);
-  const extraButtons = parseExtraButtons(content).filter(b => !ownedExtNames.has(b.name));
+  // 처리조건 그룹 내 액션 항목(버튼·FileToList)은 항목 섹션에서 처리 → 사용방법 중복 제거
+  // 일괄처리(BATCH_GROUP) 버튼은 extraButtons로 흐르게 두어 사용방법에 표기
+  const conditionActionNames = new Set(
+    conditionGroups
+      .filter(g => g.groupType === '처리조건')
+      .flatMap(g => g.controls.filter(c => c.inputType === '실행').map(c => c.labelText))
+  );
+  const extraButtons = parseExtraButtons(content).filter(
+    b => !ownedExtNames.has(b.name) && !conditionActionNames.has(b.name)
+  );
 
   return {
     filePath,

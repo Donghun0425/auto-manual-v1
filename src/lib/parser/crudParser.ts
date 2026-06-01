@@ -45,14 +45,17 @@ export function parseMenuTitleBarCrud(content: string): CrudInfo {
   // 조회 함수 감지 (Form_inqAction 또는 Form_inqClick)
   result.hasInquiry = /function\s+Form_inq(Action|Click)\s*\(/.test(content);
 
-  // 신규 함수 감지
-  result.hasNew = /function\s+Form_new(Action|Click)\s*\(/.test(content);
+  // 신규 함수 감지 - Action 본문에 실질 로직이 있어야 함
+  result.hasNew = /function\s+Form_new(Action|Click)\s*\(/.test(content)
+    && !isFunctionBodyEmpty(extractFunctionBody(content, 'Form_newAction'));
 
-  // 저장 함수 감지
-  result.hasSave = /function\s+Form_save(Action|Click)\s*\(/.test(content);
+  // 저장 함수 감지 - Action 본문에 실질 로직이 있어야 함
+  result.hasSave = /function\s+Form_save(Action|Click)\s*\(/.test(content)
+    && !isFunctionBodyEmpty(extractFunctionBody(content, 'Form_saveAction'));
 
-  // 삭제 함수 감지
-  result.hasDelete = /function\s+Form_del(Action|Click)\s*\(/.test(content);
+  // 삭제 함수 감지 - Action 본문에 실질 로직이 있어야 함
+  result.hasDelete = /function\s+Form_del(Action|Click)\s*\(/.test(content)
+    && !isFunctionBodyEmpty(extractFunctionBody(content, 'Form_delAction'));
 
   // 추가 버튼 감지 (Form_ext1Click, Form_ext2Click, ...)
   const extMatches = content.matchAll(/function\s+Form_ext(\d+)Click\s*\(/g);
@@ -73,6 +76,19 @@ export function parseMenuTitleBarCrud(content: string): CrudInfo {
   }
 
   return result;
+}
+
+/**
+ * 함수 바디가 실질적인 로직 없이 비어있는지 확인
+ * 주석·공백·return true; 만 남은 경우 true 반환
+ */
+function isFunctionBodyEmpty(body: string): boolean {
+  if (!body) return true;
+  const stripped = body
+    .replace(/\/\/[^\n]*/g, '')
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .trim();
+  return /^\{\s*(return\s+true\s*;)?\s*\}$/.test(stripped);
 }
 
 /**
@@ -231,9 +247,12 @@ export function parseTitleBarCrud(content: string): CrudInfo[] {
   const hasAnyExtFn  = /function\s+TitleForm_ext\d+Click\s*\(/.test(content);
   if (!hasAnyCrudFn && !hasAnyExtFn) return [];
 
-  const globalHasSave = /function\s+TitleForm_save(Action|Click)\s*\(/.test(content);
-  const globalHasNew  = /function\s+TitleForm_new(Action|Click)\s*\(/.test(content);
-  const globalHasDel  = /function\s+TitleForm_del(Action|Click)\s*\(/.test(content);
+  const globalHasSave = /function\s+TitleForm_save(Action|Click)\s*\(/.test(content)
+    && !isFunctionBodyEmpty(extractFunctionBody(content, 'TitleForm_saveAction'));
+  const globalHasNew  = /function\s+TitleForm_new(Action|Click)\s*\(/.test(content)
+    && !isFunctionBodyEmpty(extractFunctionBody(content, 'TitleForm_newAction'));
+  const globalHasDel  = /function\s+TitleForm_del(Action|Click)\s*\(/.test(content)
+    && !isFunctionBodyEmpty(extractFunctionBody(content, 'TitleForm_delAction'));
   const globalHasInq  = /function\s+TitleForm_inq(Action|Click)\s*\(/.test(content);
 
   // ext 버튼만 있고 CRUD 함수가 하나도 없는 경우:

@@ -73,7 +73,7 @@ export interface ConditionControlInfo {
   labelText: string;
   description: string;
   controlType: string;
-  inputType: "입력" | "표시";
+  inputType: "입력" | "표시" | "실행";
 }
 
 /** 조건그룹 정보 */
