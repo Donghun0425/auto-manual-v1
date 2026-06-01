@@ -55,9 +55,11 @@ interface GenerationPanelProps {
   selectedFileCount: number;
   outputFormats: OutputType[];
   useDictionary: boolean;
+  useUdcContext: boolean;
   progress: GenerationProgress;
   onOutputFormatChange: (format: OutputType, checked: boolean) => void;
   onDictionaryChange: (checked: boolean) => void;
+  onUdcContextChange: (checked: boolean) => void;
   onGenerate: () => void;
 }
 
@@ -65,9 +67,11 @@ export function GenerationPanel({
   selectedFileCount,
   outputFormats,
   useDictionary,
+  useUdcContext,
   progress,
   onOutputFormatChange,
   onDictionaryChange,
+  onUdcContextChange,
   onGenerate,
 }: GenerationPanelProps) {
   const isRunning = progress.status === "parsing" || progress.status === "generating";
@@ -121,6 +125,23 @@ export function GenerationPanel({
               <p>AI로 생성된 결과가 단어사전에 저장되지 않습니다.</p>
             </div>
           </div>
+        )}
+
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="use-udc-context"
+            checked={useUdcContext}
+            onCheckedChange={(checked) => onUdcContextChange(checked === true)}
+            aria-label="UDC 분석자료 활용"
+          />
+          <Label htmlFor="use-udc-context" className="text-sm cursor-pointer">
+            UDC 분석자료 활용
+          </Label>
+        </div>
+        {useUdcContext && (
+          <p className="text-xs text-muted-foreground pl-6">
+            화면에서 사용된 공통 컴포넌트(UDC)의 항목·동작 정보를 설명 생성에 반영합니다.
+          </p>
         )}
       </div>
 

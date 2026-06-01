@@ -82,6 +82,10 @@ export default function GeneratePage() {
     setOptions({ useDictionary: checked });
   }
 
+  function handleUdcContextChange(checked: boolean) {
+    setOptions({ useUdcContext: checked });
+  }
+
   function handleGenerate() {
     const selectedFiles = useFileTreeStore.getState().getSelectedFiles();
     if (selectedFiles.length === 0) return;
@@ -100,6 +104,7 @@ export default function GeneratePage() {
       files: selectedFiles.map((f) => ({ path: f.path, content: f.content })),
       settings,
       useDictionary: options.useDictionary,
+      useUdcContext: options.useUdcContext,
       outputFormats: options.outputFormats,
       layoutSections: useLayoutEditorStore.getState().sections,
     };
@@ -228,9 +233,11 @@ export default function GeneratePage() {
                 selectedFileCount={tree.selectedFiles}
                 outputFormats={options.outputFormats}
                 useDictionary={options.useDictionary}
+                useUdcContext={options.useUdcContext}
                 progress={progress}
                 onOutputFormatChange={handleOutputFormatChange}
                 onDictionaryChange={handleDictionaryChange}
+                onUdcContextChange={handleUdcContextChange}
                 onGenerate={handleGenerate}
               />
             </CardContent>

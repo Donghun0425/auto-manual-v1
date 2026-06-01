@@ -11,6 +11,7 @@ export interface GenerateRequestBody {
   files: { path: string; content: string }[];
   settings: AiSettings;
   useDictionary: boolean;
+  useUdcContext?: boolean;
   outputFormats: OutputType[];
   layoutSections?: LayoutSection[];
 }
@@ -59,7 +60,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { files, settings, useDictionary, outputFormats, layoutSections } = body;
+  const { files, settings, useDictionary, useUdcContext, outputFormats, layoutSections } = body;
 
   if (!files || files.length === 0) {
     return NextResponse.json({ error: "파일이 선택되지 않았습니다." }, { status: 400 });
@@ -81,6 +82,7 @@ export async function POST(request: NextRequest) {
         content: file.content,
         settings,
         useDictionary,
+        useUdcContext,
       });
 
       // HTML/MD 렌더링

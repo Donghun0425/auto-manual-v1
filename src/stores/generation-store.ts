@@ -28,6 +28,7 @@ const defaultOptions: GenerationOptions = {
   model: "gpt-4o-mini",
   outputFormats: ["html", "md"],
   useDictionary: true,
+  useUdcContext: true,
 };
 
 const defaultProgress: GenerationProgress = {
