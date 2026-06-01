@@ -22,7 +22,9 @@ const navItems = [
   { label: "매뉴얼 결과", href: "/result" },
   { label: "생성결과 비교", href: "/compare" },
   { label: "단어사전", href: "/dictionary" },
+  { label: "UDC 관리", href: "/udc-manager" },
   { label: "레이아웃 관리", href: "/layout-manager" },
+  { label: "이미지 관리", href: "/image-manager" },
 ]
 
 function ThemeToggle() {
