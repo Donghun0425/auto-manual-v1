@@ -21,9 +21,10 @@ const SYSTEM_PROMPT = `당신은 IT 비전문가(학생, 일반 학부모, 교�
 export function buildGridColumnPrompt(
   parseResult: ClxParseResult,
   grid: { gridId: string; title: string },
-  columns: GridColumnInfo[]
+  columns: GridColumnInfo[],
+  udcHint = ""
 ): AiMessage[] {
-  const screenContext = `화면명: ${parseResult.overview.programName}, 시스템: ${parseResult.overview.systemName}`;
+  const screenContext = `화면명: ${parseResult.overview.programName}, 시스템: ${parseResult.overview.systemName}${udcHint}`;
   const columnList = columns
     .map((c) => `- ${c.headerText} (타입: ${c.controlType})`)
     .join("\n");
@@ -58,9 +59,10 @@ ${columnList}
 export function buildConditionControlPrompt(
   parseResult: ClxParseResult,
   groupType: string,
-  controls: ConditionControlInfo[]
+  controls: ConditionControlInfo[],
+  udcHint = ""
 ): AiMessage[] {
-  const screenContext = `화면명: ${parseResult.overview.programName}, 시스템: ${parseResult.overview.systemName}`;
+  const screenContext = `화면명: ${parseResult.overview.programName}, 시스템: ${parseResult.overview.systemName}${udcHint}`;
   const controlList = controls
     .map((c, i) => `${i + 1}. ${c.labelText} (ID: ${c.controlId}, 타입: ${c.controlType}, ${c.inputType})`)
     .join("\n");
@@ -187,7 +189,7 @@ export function buildOverviewPrompt(parseResult: ClxParseResult): AiMessage[] {
  * 사용방법 Step별 설명 생성 프롬프트 (v6 호환)
  * {B}기능명{/B} + Step1~N 형식
  */
-export function buildUsagePrompt(parseResult: ClxParseResult): AiMessage[] {
+export function buildUsagePrompt(parseResult: ClxParseResult, udcHint = ""): AiMessage[] {
   const menu = parseResult.usage.menuTitleBar;
 
   // 기능 목록 (MenuTitleBar CRUD + 추가 버튼 + 독립 버튼)
@@ -328,7 +330,7 @@ Step2. 설명
     },
     {
       role: "user",
-      content: contextParts.join("\n") + "\n\n위 정보를 바탕으로 각 기능의 사용방법을 Step별로 구체적으로 작성해주세요.",
+      content: contextParts.join("\n") + udcHint + "\n\n위 정보를 바탕으로 각 기능의 사용방법을 Step별로 구체적으로 작성해주세요.",
     },
   ];
 }

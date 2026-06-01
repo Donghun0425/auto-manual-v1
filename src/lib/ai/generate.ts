@@ -22,12 +22,16 @@ import {
   buildNotesPrompt,
 } from "./prompts";
 import { findDictionaryByTerms, upsertDictionary } from "@/lib/supabase/queries/dictionary";
+import { enrichUdcContext, formatUdcHint } from "./enrich-udc-context";
+import { applyUdcSynthesis } from "./synthesize-udc-items";
 
 export interface GenerateFileOptions {
   filePath: string;
   content: string;
   settings: AiSettings;
   useDictionary: boolean;
+  /** UDC 분석자료를 프롬프트에 주입할지 여부 */
+  useUdcContext?: boolean;
   onProgress?: (step: string) => void;
 }
 
@@ -59,22 +63,36 @@ function getCategoryFromFileName(filePath: string): "공통" | "학사" | "행�
 export async function generateManualForFile(
   options: GenerateFileOptions
 ): Promise<ManualResult> {
-  const { filePath, content, settings, useDictionary, onProgress } = options;
+  const { filePath, content, settings, useDictionary, useUdcContext, onProgress } = options;
   let totalUsage: AiUsage = { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
 
   // 1. 파싱
   onProgress?.("파싱 중...");
   const parseResult = analyzeFile(filePath, content);
 
+  // 1-2. UDC 컨텍스트 보강 (옵션 ON 시) — 실패해도 빈 힌트로 degrade
+  let udcHint = "";
+  if (useUdcContext) {
+    onProgress?.("UDC 분석자료 조회 중...");
+    try {
+      const udcCtx = await enrichUdcContext(parseResult, content);
+      udcHint = formatUdcHint(udcCtx);
+      // UDC 내부 캡슐화 콘텐츠(필드/버튼)를 항목·사용방법에 합성 주입
+      applyUdcSynthesis(parseResult, udcCtx, content);
+    } catch {
+      udcHint = "";
+    }
+  }
+
   // 2~5. AI enrichment (실패해도 파싱 결과는 유지)
   try {
-    // 2. 그리드 컬럼 설명 AI 생성
+    // 2. 그리드 컴럼 설명 AI 생성
     onProgress?.("그리드 설명 생성 중...");
-    totalUsage = await enrichGridDescriptions(parseResult, settings, useDictionary, totalUsage, filePath);
+    totalUsage = await enrichGridDescriptions(parseResult, settings, useDictionary, totalUsage, filePath, udcHint);
 
-    // 3. 조건그룹 컨트롤 설명 AI 생성
+    // 3. 조건그룹 컴트롤 설명 AI 생성
     onProgress?.("조건그룹 설명 생성 중...");
-    totalUsage = await enrichConditionDescriptions(parseResult, settings, useDictionary, totalUsage, filePath);
+    totalUsage = await enrichConditionDescriptions(parseResult, settings, useDictionary, totalUsage, filePath, udcHint);
 
     // 4. 버튼 설명 AI 생성
     onProgress?.("버튼 설명 생성 중...");
@@ -86,7 +104,7 @@ export async function generateManualForFile(
 
     // 6. 사용방법 Step별 설명 생성
     onProgress?.("사용방법 생성 중...");
-    totalUsage = await enrichUsageText(parseResult, settings, totalUsage);
+    totalUsage = await enrichUsageText(parseResult, settings, totalUsage, udcHint);
 
     // 7. 참고사항 변환 생성
     onProgress?.("참고사항 변환 중...");
@@ -111,7 +129,8 @@ async function enrichGridDescriptions(
   settings: AiSettings,
   useDictionary: boolean,
   usage: AiUsage,
-  filePath: string
+  filePath: string,
+  udcHint: string
 ): Promise<AiUsage> {
   const category = getCategoryFromFileName(filePath);
   const contextType: DictionaryContextType = "그리드";
@@ -140,7 +159,7 @@ async function enrichGridDescriptions(
     // 청크 단위로 batch AI 호출
     for (let i = 0; i < toProcess.length; i += BATCH_CHUNK_SIZE) {
       const chunk = toProcess.slice(i, i + BATCH_CHUNK_SIZE);
-      const batchUsage = await batchGridColumnAi(parseResult, grid, chunk, settings);
+      const batchUsage = await batchGridColumnAi(parseResult, grid, chunk, settings, udcHint);
       usage = addUsage(usage, batchUsage);
     }
 
@@ -161,11 +180,12 @@ async function batchGridColumnAi(
   parseResult: ClxParseResult,
   grid: { gridId: string; title: string },
   columns: GridColumnInfo[],
-  settings: AiSettings
+  settings: AiSettings,
+  udcHint: string
 ): Promise<AiUsage> {
   if (columns.length === 0) return { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
 
-  const messages = buildGridColumnPrompt(parseResult, grid, columns);
+  const messages = buildGridColumnPrompt(parseResult, grid, columns, udcHint);
   const response = await callAi(settings, messages);
   const raw = extractContent(response);
   const text = stripCodeBlock(raw);
@@ -202,7 +222,8 @@ async function enrichConditionDescriptions(
   settings: AiSettings,
   useDictionary: boolean,
   usage: AiUsage,
-  filePath: string
+  filePath: string,
+  udcHint: string
 ): Promise<AiUsage> {
   const category = getCategoryFromFileName(filePath);
   const allGroups = [
@@ -232,7 +253,7 @@ async function enrichConditionDescriptions(
     // 청크 단위로 batch AI 호출
     for (let i = 0; i < toProcess.length; i += BATCH_CHUNK_SIZE) {
       const chunk = toProcess.slice(i, i + BATCH_CHUNK_SIZE);
-      const batchUsage = await batchConditionAi(parseResult, group.groupType, chunk, settings);
+      const batchUsage = await batchConditionAi(parseResult, group.groupType, chunk, settings, udcHint);
       usage = addUsage(usage, batchUsage);
     }
 
@@ -253,11 +274,12 @@ async function batchConditionAi(
   parseResult: ClxParseResult,
   groupType: string,
   controls: ConditionControlInfo[],
-  settings: AiSettings
+  settings: AiSettings,
+  udcHint: string
 ): Promise<AiUsage> {
   if (controls.length === 0) return { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
 
-  const messages = buildConditionControlPrompt(parseResult, groupType, controls);
+  const messages = buildConditionControlPrompt(parseResult, groupType, controls, udcHint);
   const response = await callAi(settings, messages);
   const raw = extractContent(response);
   const text = stripCodeBlock(raw);
@@ -348,7 +370,8 @@ function addUsage(a: AiUsage, b: AiUsage): AiUsage {
 async function enrichUsageText(
   parseResult: ClxParseResult,
   settings: AiSettings,
-  usage: AiUsage
+  usage: AiUsage,
+  udcHint: string
 ): Promise<AiUsage> {
   // 기능이 없으면 스킵
   const menu = parseResult.usage.menuTitleBar;
@@ -357,7 +380,7 @@ async function enrichUsageText(
     menu.extButtons.length > 0 || parseResult.usage.extraButtons.length > 0;
   if (!hasFeatures && parseResult.usage.titleBars.length === 0) return usage;
 
-  const messages = buildUsagePrompt(parseResult);
+  const messages = buildUsagePrompt(parseResult, udcHint);
   const response = await callAi(settings, messages);
   let text = extractContent(response);
 
