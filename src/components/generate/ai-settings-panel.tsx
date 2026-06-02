@@ -53,7 +53,7 @@ export function AiSettingsPanel({ settings, onChange }: AiSettingsPanelProps) {
       const items: ProxyModel[] = (json.data ?? [])
         .map((m: Record<string, string>) => ({ family: m.family ?? m.id, id: m.id }))
         .filter((m: ProxyModel) => m.family.startsWith("gpt-4") || m.family.startsWith("gpt-5")) //2026.06.02 KHJ gpt 5추가 수정
-        .filter((m: ProxyModel) => {//2026.06.02 KHJ 중복모델 제거 추가
+        .filter((m: ProxyModel) => {//2026.06.02 KHJ 중복모델 제거 추가 1
           if (seen.has(m.family)) return false;
           seen.add(m.family);
           return true;
