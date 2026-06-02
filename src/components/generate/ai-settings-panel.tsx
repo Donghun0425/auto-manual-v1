@@ -49,9 +49,15 @@ export function AiSettingsPanel({ settings, onChange }: AiSettingsPanelProps) {
       const res = await fetch(`${base}/v1/models`, { signal: AbortSignal.timeout(4000) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
+      const seen = new Set<string>(); //2026.06.02 KHJ추가
       const items: ProxyModel[] = (json.data ?? [])
         .map((m: Record<string, string>) => ({ family: m.family ?? m.id, id: m.id }))
-        .filter((m: ProxyModel) => m.family.startsWith("gpt-4"));
+        .filter((m: ProxyModel) => m.family.startsWith("gpt-4") || m.family.startsWith("gpt-5")) //2026.06.02 KHJ gpt 5추가 수정
+        .filter((m: ProxyModel) => {//2026.06.02 KHJ 중복모델 제거 추가
+          if (seen.has(m.family)) return false;
+          seen.add(m.family);
+          return true;
+        });
       setProxyModels(items);
       // 현재 선택된 모델이 목록에 없으면 첫 번째로 리셋
       if (items.length > 0 && !items.find((m) => m.family === settings.model)) {
