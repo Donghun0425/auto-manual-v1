@@ -153,44 +153,8 @@ export function AiSettingsPanel({ settings, onChange }: AiSettingsPanelProps) {
       {isInternal && (
         <div className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="internal-api-key" className="flex items-center gap-1.5 text-sm">
-              <Server className="h-3.5 w-3.5" aria-hidden="true" />
-              내부 AI 서버 API 키
-            </Label>
-            <div className="relative">
-              <Input
-                id="internal-api-key"
-                type={showApiKey ? "text" : "password"}
-                value={settings.apiKey ?? ""}
-                onChange={(e) => onChange({ apiKey: e.target.value })}
-                placeholder="app-xxxxxxxxxxxxxxxxxxxx"
-                className="pr-10 font-mono text-sm"
-                autoComplete="off"
-                aria-describedby="internal-key-hint"
-              />
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="absolute right-1 top-1/2 -translate-y-1/2 h-7 w-7"
-                onClick={() => setShowApiKey((v) => !v)}
-                aria-label={showApiKey ? "API 키 숨기기" : "API 키 표시"}
-              >
-                {showApiKey ? (
-                  <EyeOff className="h-3.5 w-3.5" aria-hidden="true" />
-                ) : (
-                  <Eye className="h-3.5 w-3.5" aria-hidden="true" />
-                )}
-              </Button>
-            </div>
-            <p id="internal-key-hint" className="text-xs text-muted-foreground">
-              키는 브라우저 localStorage에만 저장됩니다.
-            </p>
-          </div>
-
-          <div className="space-y-2">
             <Label htmlFor="internal-base-url" className="flex items-center gap-1.5 text-sm">
-              <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
+              <Server className="h-3.5 w-3.5" aria-hidden="true" />
               Base URL
             </Label>
             <Input
@@ -202,6 +166,9 @@ export function AiSettingsPanel({ settings, onChange }: AiSettingsPanelProps) {
               className="font-mono text-sm"
             />
           </div>
+          <p className="text-xs text-muted-foreground">
+            내부 AI 서버 API 키는 서버 환경설정 파일(INTERNAL_AI_KEY)에서 관리됩니다.
+          </p>
         </div>
       )}
 
