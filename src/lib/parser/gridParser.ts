@@ -170,20 +170,24 @@ function parseHeaderCells(headerSection: string): Map<number, string> {
 
   const headerCells = new Map<number, string>();
 
-  // 2단계: 그룹 헤더를 colSpan 범위 전체에 적용 (가장 낮은 우선순위)
-  for (const { colIndex, colSpan, text } of groupEntries) {
-    for (let ci = colIndex; ci < colIndex + colSpan; ci++) {
-      if (!headerCells.has(ci)) {
-        headerCells.set(ci, text);
-      }
-    }
+// 2단계: 그룹 헤더를 colIndex별로 임시 저장
+const groupTextMap = new Map<number, string>();
+for (const { colIndex, colSpan, text } of groupEntries) {
+  for (let ci = colIndex; ci < colIndex + colSpan; ci++) {
+    groupTextMap.set(ci, text);
   }
+}
 
-  // 3단계: 세부 헤더(rowIndex>=1)로 덮어씀 (높은 우선순위)
-  for (const { colIndex, text } of subEntries) {
-    headerCells.set(colIndex, text);
-  }
+// 3단계: 세부 헤더가 있으면 "그룹명-세부명", 없으면 그룹명만
+for (const { colIndex, text } of subEntries) {
+  const groupText = groupTextMap.get(colIndex);
+  headerCells.set(colIndex, groupText ? `${groupText}-${text}` : text);
+}
 
+// 세부 헤더가 없는 colIndex는 그룹명 그대로
+for (const [ci, text] of groupTextMap) {
+  if (!headerCells.has(ci)) headerCells.set(ci, text);
+}
   return headerCells;
 }
 
