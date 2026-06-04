@@ -186,8 +186,9 @@ async function callDifyAi(
   settings: AiSettings,
   messages: AiMessage[]
 ): Promise<AiResponse> {
-  if (!settings.apiKey) {
-    throw new Error("내부 AI 서버 API 키가 설정되지 않았습니다.");
+  const apiKey = process.env.INTERNAL_AI_KEY;
+  if (!apiKey) {
+    throw new Error("내부 AI 서버 API 키가 설정되지 않았습니다. 서버 환경변수 INTERNAL_AI_KEY를 설정하세요.");
   }
 
   const baseUrl = (settings.internalBaseUrl ?? "http://192.168.71.125/v1").replace(/\/$/, "");
@@ -221,7 +222,7 @@ async function callDifyAi(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${settings.apiKey}`,
+          "Authorization": `Bearer ${apiKey}`,
         },
         body: JSON.stringify(difyPayload),
       });

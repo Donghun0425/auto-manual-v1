@@ -265,17 +265,52 @@ function extractMarkdownSection(
   const bodyLines = endIdx < 0 ? lines.slice(startIdx + 1) : lines.slice(startIdx + 1, endIdx);
 
   if (section === "화면개요") {
+    // '설명'(blockquote) 줄만 추출 — 시스템/서브시스템 메타 줄 제외
     return bodyLines
-      .filter((l) => l.trim() && !l.startsWith("#") && !l.startsWith("!"))
+      .filter((l) => l.trimStart().startsWith(">"))
+      .map((l) => l.replace(/^>\s?/, ""))
       .map(stripBTags)
       .join("\n")
       .trim();
   }
   if (section === "사용방법") {
-    return bodyLines.join("\n").trim();
+    return bodyLines
+      .map((l) => {
+        // 소제목 **text** → {B}text{/B}
+        if (/^\*\*(.+?)\*\*$/.test(l)) {
+          return l.replace(/^\*\*(.+?)\*\*$/, "{B}$1{/B}");
+        }
+        // MSG 줄: > 💬 **"..."** → >내용 (이모지·따옴표·볼드 제거)
+        if (/^>\s*/.test(l)) {
+          return l
+            .replace(/^>\s*/, ">")
+            .replace(/[\u{1F300}-\u{1FAFF}]/gu, "")  // 이모지 제거
+            .replace(/\s*\*\*"?(.+?)"?\*\*/g, "$1")   // **"..."** / **...** 언볼드
+            .replace(/^>\s+/, ">");                    // > 직후 공백 정리
+        }
+        return l;
+      })
+      .join("\n")
+      .trim();
   }
-  // 참고사항
-  return bodyLines.map(stripBTags).join("\n").trim();
+  // 참고사항: --- 이후 푸터 제거, 소제목 ### + 이모지 → {B}{/B}, 나머지 stripBTags
+  const footerIdx = bodyLines.findIndex((l) => l.trim() === "---");
+  const contentLines = footerIdx >= 0 ? bodyLines.slice(0, footerIdx) : bodyLines;
+  return contentLines
+    .map((l) => {
+      // ### (이모지?) 소제목 → {B}소제목{/B}
+      if (/^#{1,3}\s/.test(l)) {
+        return l
+          .replace(/^#{1,3}\s+/, "")
+          .replace(/[\u{1F300}-\u{1FAFF}\u2600-\u26FF\u2700-\u27BF]/gu, "")
+          .replace(/^[⚠⏱]\s*/, "")
+          .trim()
+          .replace(/(.+)/, "{B}$1{/B}");
+      }
+      return stripBTags(l);
+    })
+    .join("\n")
+    .trim();
 }
 
 function extractItemsHtml(html: string | undefined): string {
