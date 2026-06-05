@@ -253,18 +253,28 @@ function parseBodyControls(body: string, fullContent: string): Array<{
       const valM = valRe.exec(outerBody);
       if (valM) labelValue = normalizeLabel(valM[1]);
     } else if (type === 'CheckBox') {
-      const textRe = new RegExp(`${varName}\.text\s*=\s*"([^"]+)"`);
+      const textRe = new RegExp(`${varName}\\.text\\s*=\\s*"([^"]+)"`);
       const textM = textRe.exec(outerBody);
       if (textM) {
         labelValue = normalizeLabel(textM[1]);
       } else {
         const lookupRe = new RegExp(
-          `app\.lookup\("${controlId}"\)\.text\s*=\s*"([^"]+)"`,
+          `app\\.lookup\\("${controlId}"\\)\\.text\\s*=\\s*"([^"]+)"`,
         );
         const lookupM = lookupRe.exec(fullContent);
         if (lookupM) labelValue = normalizeLabel(lookupM[1]);
+      }    } else if (type === 'RadioButton') {
+      // addItem(new cpr.controls.Item("라벨", "값")) 패턴에서 아이템 텍스트 추출
+      const itemRe = new RegExp(
+        `${varName}\\.addItem\\(new\\s+cpr\\.controls\\.Item\\("([^"]+)"`,
+        'g',
+      );
+      const items: string[] = [];
+      let itemM: RegExpExecArray | null;
+      while ((itemM = itemRe.exec(outerBody)) !== null) {
+        items.push(normalizeLabel(itemM[1]));
       }
-    } else if (isUdcType(fType) && !OUTPUT_LABEL_UDCS.has(type)) {
+      if (items.length > 0) labelValue = items.join(' / ');    } else if (isUdcType(fType) && !OUTPUT_LABEL_UDCS.has(type)) {
       // PatisFileToList: buttonText 속성 대입 방식 우선 처리 (함수 호출 아님)
       if (type === 'PatisFileToList') {
         const btnTextRe = new RegExp(`${varName}\\.buttonText\\s*=\\s*"([^"]+)"`);
@@ -345,8 +355,9 @@ function buildPairs(
       let labelText: string;
 
       if ((isUdcType(input.fullType) && !OUTPUT_LABEL_UDCS.has(input.controlType))
-          || input.controlType === 'CheckBox') {
-        // UDC 또는 CheckBox: 자체 라벨 우선
+          || input.controlType === 'CheckBox'
+          || input.controlType === 'RadioButton') {
+        // UDC, CheckBox, RadioButton: 자체 라벨 우선
         if (input.labelValue) {
           labelText = input.labelValue;
         } else {
