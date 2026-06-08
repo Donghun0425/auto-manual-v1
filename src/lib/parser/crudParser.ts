@@ -45,9 +45,8 @@ export function parseMenuTitleBarCrud(content: string): CrudInfo {
   // 조회 함수 감지 (Form_inqAction 또는 Form_inqClick)
   result.hasInquiry = /function\s+Form_inq(Action|Click)\s*\(/.test(content);
 
-  // 신규 함수 감지 - Action 본문에 실질 로직이 있어야 함
-  result.hasNew = /function\s+Form_new(Action|Click)\s*\(/.test(content)
-    && !isFunctionBodyEmpty(extractFunctionBody(content, 'Form_newAction'));
+  // 신규 함수 감지 - 함수 존재 여부만 확인 (newAction은 빈 바디도 허용)
+  result.hasNew = /function\s+Form_new(Action|Click)\s*\(/.test(content);
 
   // 저장 함수 감지 - Action 본문에 실질 로직이 있어야 함
   result.hasSave = /function\s+Form_save(Action|Click)\s*\(/.test(content)
@@ -249,8 +248,7 @@ export function parseTitleBarCrud(content: string): CrudInfo[] {
 
   const globalHasSave = /function\s+TitleForm_save(Action|Click)\s*\(/.test(content)
     && !isFunctionBodyEmpty(extractFunctionBody(content, 'TitleForm_saveAction'));
-  const globalHasNew  = /function\s+TitleForm_new(Action|Click)\s*\(/.test(content)
-    && !isFunctionBodyEmpty(extractFunctionBody(content, 'TitleForm_newAction'));
+  const globalHasNew  = /function\s+TitleForm_new(Action|Click)\s*\(/.test(content); // 빈 바디도 허용
   const globalHasDel  = /function\s+TitleForm_del(Action|Click)\s*\(/.test(content)
     && !isFunctionBodyEmpty(extractFunctionBody(content, 'TitleForm_delAction'));
   const globalHasInq  = /function\s+TitleForm_inq(Action|Click)\s*\(/.test(content);
