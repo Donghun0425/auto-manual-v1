@@ -12,6 +12,7 @@ export function parseHeader(content: string): OverviewInfo {
     systemName: "",
     subSystem: "",
     programName: "",
+    appTitle: "",
     description: "",
     author: "",
     createDate: "",
@@ -34,6 +35,9 @@ export function parseHeader(content: string): OverviewInfo {
 
   const dateMatch = content.match(/\/\/\s*\[작성일자\]\s*(.+)/);
   if (dateMatch) result.createDate = dateMatch[1].trim();
+
+  const appTitleMatch = content.match(/app\.title\s*=\s*"([^"]+)"/);
+  if (appTitleMatch) result.appTitle = appTitleMatch[1].trim();
 
   return result;
 }

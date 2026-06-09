@@ -8,6 +8,8 @@ export interface OverviewInfo {
   systemName: string;
   subSystem: string;
   programName: string;
+  /** app.title 속성 값 (앱 제목) */
+  appTitle: string;
   description: string;
   author: string;
   createDate: string;

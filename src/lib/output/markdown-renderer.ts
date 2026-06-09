@@ -52,11 +52,44 @@ function renderSection(section: LayoutSection, data: ClxParseResult): string {
 
 // ─── 개별 섹션 렌더러 ──────────────────────────────────────────
 
+// ─── 제목 접두어 헬퍼 ────────────────────────────────────
+
+/** app.title 우선, 없으면 programName */
+function programNameOf(data: ClxParseResult): string {
+  return (data.overview.appTitle || data.overview.programName || "").trim();
+}
+
+/** 섹션 제목 접두어: "[프로그램명] " 또는 "" */
+function sectionPrefix(data: ClxParseResult): string {
+  const pn = programNameOf(data);
+  return pn ? `[${pn}] ` : "";
+}
+
+/** 항목 h3 제목 접두어: "[프로그램명 > 그룹라벨] " 또는 "[그룹라벨] " */
+function groupPrefix(data: ClxParseResult, groupLabel: string): string {
+  const pn = programNameOf(data);
+  return pn ? `[${pn} > ${groupLabel}] ` : `[${groupLabel}] `;
+}
+
+/** 조건그룹 groupType → 항목 그룹라벨 */
+function conditionGroupLabel(groupType: string): string {
+  switch (groupType) {
+    case "조회조건":
+      return "조건그룹";
+    case "처리조건":
+      return "처리그룹";
+    case "일괄처리":
+      return "배치그룹";
+    default:
+      return groupType;
+  }
+}
+
 function renderOverview(data: ClxParseResult, customTitle?: string): string {
   const o = data.overview;
   if (!o.programName && !o.systemName) return "";
 
-  const title = customTitle || "화면개요";
+  const title = sectionPrefix(data) + (customTitle || "화면개요");
   const lines: string[] = [`## ${title}\n`];
 
   if (o.description) lines.push(`> ${o.description.split("\n").join("\n> ")}\n`);
@@ -70,12 +103,23 @@ function renderOverview(data: ClxParseResult, customTitle?: string): string {
 }
 
 function renderUsage(data: ClxParseResult, customTitle?: string): string {
-  const title = customTitle || "사용방법";
+  const title = sectionPrefix(data) + (customTitle || "사용방법");
 
   // AI 생성 텍스트가 있으면 {B}...{/B} 파싱하여 Markdown으로 변환
   if (data.aiUsageText) {
+    // pre-pass: 다행(또는 리터럴 \n)에 걸쳐 있는 {MSG}...{/MSG} 블록을
+    //           한 행씩 {MSG}라인{/MSG} 형식으로 정규화
+    const normalizedText = data.aiUsageText.replace(
+      /\{MSG\}([\s\S]*?)\{\/MSG\}/g,
+      (_, inner: string) =>
+        inner.split(/\\n|\n/)
+          .map((l: string) => l.trim())
+          .filter(Boolean)
+          .map((l: string) => `{MSG}${l}{/MSG}`)
+          .join('\n')
+    );
     const lines: string[] = [`## ${title}\n`];
-    for (const raw of data.aiUsageText.split("\n")) {
+    for (const raw of normalizedText.split("\n")) {
       const line = raw.trim();
       if (!line) continue;
       if (/^\{B\}.+\{\/B\}$/.test(line)) {
@@ -147,12 +191,12 @@ function renderConditions(data: ClxParseResult, customTitle?: string, section?: 
   const groups = data.items.conditionGroups;
   if (groups.length === 0) return "";
 
-  const title = customTitle || "조건그룹";
+  const title = sectionPrefix(data) + (customTitle || "항목");
   const showTable = section?.options?.showTable !== false;
   const parts: string[] = [`## ${title}\n`];
 
   for (const group of groups) {
-    const groupTitle = group.title || `${group.groupType} (${group.groupId})`;
+    const groupTitle = `${groupPrefix(data, conditionGroupLabel(group.groupType))}${group.title || group.groupType} (${group.groupId})`;
     parts.push(`### ${groupTitle}\n`);
 
     if (showTable) {
@@ -176,12 +220,17 @@ function renderInfoGroups(data: ClxParseResult, customTitle?: string, section?: 
   const groups = data.items.infoGroups;
   if (groups.length === 0) return "";
 
-  const title = customTitle || "인포그룹";
   const showTable = section?.options?.showTable !== false;
-  const parts: string[] = [`## ${title}\n`];
+  // 조건그룹이 있으면 "항목" h2는 이미 출력됨
+  const hasCondGroups = data.items.conditionGroups.length > 0;
+  const parts: string[] = [];
+  if (!hasCondGroups) {
+    const title = sectionPrefix(data) + (customTitle || "항목");
+    parts.push(`## ${title}\n`);
+  }
 
   for (const group of groups) {
-    const groupTitle = group.title || group.groupId;
+    const groupTitle = `${groupPrefix(data, "인포그룹")}${group.title || group.groupId} (${group.groupId})`;
     parts.push(`### ${groupTitle}\n`);
 
     if (showTable) {
@@ -205,12 +254,13 @@ function renderGrids(data: ClxParseResult, customTitle?: string, section?: Layou
   const grids = data.items.grids.filter(g => !/EXCEL/i.test(g.gridId));
   if (grids.length === 0) return "";
 
-  const title = customTitle || "그리드";
   const showTable = section?.options?.showTable !== false;
-  const parts: string[] = [`## ${title}\n`];
+  // 조건그룹이나 INFOGROUP이 없을 때만 "항목" h2 출력
+  const hasCondOrInfo = data.items.conditionGroups.length > 0 || data.items.infoGroups.length > 0;
+  const parts: string[] = hasCondOrInfo ? [] : [`## ${sectionPrefix(data) + (customTitle || "항목")}\n`];
 
   for (const grid of grids) {
-    const gridTitle = grid.title || grid.gridId;
+    const gridTitle = `${groupPrefix(data, "그리드그룹")}${grid.title || grid.gridId} (${grid.gridId})`;
     const options: string[] = [];
     if (grid.hasCheckbox) options.push("체크박스");
     if (grid.hasRowNumber) options.push("행번호");
@@ -240,7 +290,7 @@ function renderGrids(data: ClxParseResult, customTitle?: string, section?: Layou
 function renderPopups(data: ClxParseResult, customTitle?: string): string {
   if (data.popups.length === 0) return "";
 
-  const title = customTitle || "팝업";
+  const title = sectionPrefix(data) + (customTitle || "팝업");
   const parts: string[] = [`## ${title}\n`];
   parts.push("| 팝업 ID | URL | 콜백 함수 | 크기 |");
   parts.push("|---------|-----|-----------|------|");
@@ -255,7 +305,7 @@ function renderPopups(data: ClxParseResult, customTitle?: string): string {
 function renderTabs(data: ClxParseResult, customTitle?: string): string {
   if (data.tabPages.length === 0) return "";
 
-  const title = customTitle || "탭페이지";
+  const title = sectionPrefix(data) + (customTitle || "탭페이지");
   const parts: string[] = [`## ${title}\n`];
   parts.push("| 탭 라벨 | 앱 URI | 호출 위치 |");
   parts.push("|---------|--------|-----------|");
@@ -275,7 +325,7 @@ function renderNotes(data: ClxParseResult, customTitle?: string): string {
     .filter(v => !/inq|inquiry|search|save|del/i.test(v.functionName))
     .filter(v => !COMPLETION_RE.test(v.message.trim()));
 
-  const title = customTitle || "참고사항";
+  const title = sectionPrefix(data) + (customTitle || "참고사항");
   const parts: string[] = [`## ${title}\n`];
 
   if (requiredFields.length > 0) {
