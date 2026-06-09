@@ -162,7 +162,7 @@ export function AiSettingsPanel({ settings, onChange }: AiSettingsPanelProps) {
               type="text"
               value={settings.internalBaseUrl}
               onChange={(e) => onChange({ internalBaseUrl: e.target.value })}
-              placeholder="http://192.168.71.125/v1"
+              placeholder="https://ax.acanet.asia/v1"
               className="font-mono text-sm"
             />
           </div>

@@ -191,7 +191,7 @@ async function callDifyAi(
     throw new Error("내부 AI 서버 API 키가 설정되지 않았습니다. 서버 환경변수 INTERNAL_AI_KEY를 설정하세요.");
   }
 
-  const baseUrl = (settings.internalBaseUrl ?? "http://192.168.71.125/v1").replace(/\/$/, "");
+  const baseUrl = (settings.internalBaseUrl ?? "https://ax.acanet.asia/v1").replace(/\/$/, "");
   const url = `${baseUrl}/chat-messages`;
 
   // system 메시지를 지시사항으로, user 메시지를 query로 병합

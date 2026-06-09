@@ -30,7 +30,7 @@ export const DEFAULT_AI_SETTINGS: AiSettings = {
   provider: "vscode-proxy",
   model: "gpt-4o-mini",
   proxyUrl: "http://localhost:3100",
-  internalBaseUrl: "http://192.168.71.125/v1",
+  internalBaseUrl: "https://ax.acanet.asia/v1",
   maxTokens: 4096,
   temperature: 0.3,
 };
