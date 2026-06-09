@@ -463,6 +463,9 @@ function renderNotes(data: ClxParseResult, customTitle?: string): string {
   if (otherVals.length > 0) {
     // 함수명 → 버튼명 맵 구성
     const funcLabelMap = new Map<string, string>();
+    for (const btn of data.usage.menuTitleBar.extButtons) {
+      funcLabelMap.set(btn.functionName, btn.name);
+    }
     for (const btn of data.usage.extraButtons) {
       funcLabelMap.set(btn.functionName, btn.name);
     }
