@@ -241,10 +241,21 @@ export function buildUsagePrompt(parseResult: ClxParseResult, udcHint = ""): AiM
   const requiredInfo = shownRequiredTexts.join(", ") +
     (allRequiredTexts.length > 4 ? ` 외 ${allRequiredTexts.length - 4}개` : "");
 
-  // 검증 메시지
+  // 검증 메시지 (inq/save/del 전용 및 완료 메시지 제외 + 버튼명 레이블 포함)
+  const VALIDATION_COMPLETION_RE = /^(?:처리|저장|삭제|등록|수정|복사|생성|변경|갱신|적용|실행)[^\n]*?(?:되었습니다|했습니다|하였습니다)[.!]?\s*$/;
+  const validationFuncLabelMap = new Map<string, string>();
+  for (const btn of parseResult.usage.menuTitleBar.extButtons)
+    validationFuncLabelMap.set(btn.functionName, btn.name);
+  for (const btn of parseResult.usage.extraButtons)
+    validationFuncLabelMap.set(btn.functionName, btn.name);
   const validationMessages = parseResult.notes.validations
+    .filter(v => !/inq|inquiry|search|save|del/i.test(v.functionName))
+    .filter(v => !VALIDATION_COMPLETION_RE.test(v.message.trim()))
     .slice(0, 8)
-    .map((v) => `  - ${v.message}`)
+    .map((v) => {
+      const label = validationFuncLabelMap.get(v.functionName);
+      return label ? `  - [${label}] ${v.message}` : `  - ${v.message}`;
+    })
     .join("\n");
 
   // 팝업 정보

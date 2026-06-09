@@ -518,6 +518,9 @@ async function enrichNotes(
 
   // 함수명 → 버튼명 맵 구성
   const funcLabelMap = new Map<string, string>();
+  for (const btn of parseResult.usage.menuTitleBar.extButtons) {
+    funcLabelMap.set(btn.functionName, btn.name);
+  }
   for (const btn of parseResult.usage.extraButtons) {
     funcLabelMap.set(btn.functionName, btn.name);
   }
