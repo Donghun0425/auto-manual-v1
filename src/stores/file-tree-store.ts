@@ -26,6 +26,8 @@ interface FileTreeState {
   uncheckAll: () => void;
   getSelectedFiles: () => UploadedFile[];
   setReuse: (path: string, reuse: boolean) => void;
+  /** 저장본이 있는 파일들의 재사용 여부를 일괄 설정 (paths 미지정 시 전체 파일 대상) */
+  setAllReuse: (reuse: boolean, paths?: string[]) => void;
   setSavedSummaries: (
     summaries: Array<{
       id: string;
@@ -186,6 +188,20 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
     set((state) => ({
       reuseByPath: { ...state.reuseByPath, [path]: reuse },
     })),
+
+  setAllReuse: (reuse, paths) =>
+    set((state) => {
+      const targetSet = paths ? new Set(paths) : null;
+      const reuseByPath = { ...state.reuseByPath };
+      for (const f of state.uploadedFiles) {
+        if (targetSet && !targetSet.has(f.path)) continue;
+        // 저장본이 있는 파일만 토글 대상 (나머지는 항상 새로 생성)
+        if (state.savedByFileName[f.name]) {
+          reuseByPath[f.path] = reuse;
+        }
+      }
+      return { reuseByPath };
+    }),
 
   setSavedSummaries: (summaries) =>
     set((state) => {
