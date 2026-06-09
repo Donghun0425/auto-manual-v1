@@ -55,6 +55,49 @@ function ReuseToggle({ node }: { node: FileNode }) {
   );
 }
 
+// ── 저장본 일괄 재사용/새로생성 토글 ──────────────────────────
+function BulkReuseToggle() {
+  const uploadedFiles = useFileTreeStore((s) => s.uploadedFiles);
+  const savedByFileName = useFileTreeStore((s) => s.savedByFileName);
+  const setAllReuse = useFileTreeStore((s) => s.setAllReuse);
+  const getSelectedFiles = useFileTreeStore((s) => s.getSelectedFiles);
+
+  // 저장본이 있는 파일 수 (토글 대상)
+  const savedCount = uploadedFiles.filter((f) => savedByFileName[f.name]).length;
+  if (savedCount === 0) return null; // 저장본 없으면 일괄 토글 숨김
+
+  function applyAll(reuse: boolean) {
+    const selected = getSelectedFiles();
+    // 체크된 파일이 있으면 그 파일만, 없으면 전체 대상
+    const paths = selected.length > 0 ? selected.map((f) => f.path) : undefined;
+    setAllReuse(reuse, paths);
+  }
+
+  return (
+    <div className="flex items-center gap-1.5 shrink-0">
+      <span className="text-xs text-muted-foreground">저장본 일괄:</span>
+      <button
+        type="button"
+        onClick={() => applyAll(true)}
+        className="flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium text-green-700 border-green-300 bg-green-50 hover:bg-green-100 dark:text-green-400 dark:border-green-800 dark:bg-green-950 dark:hover:bg-green-900 transition-colors"
+        title="저장본이 있는 파일을 모두 재사용으로 설정"
+      >
+        <Database className="h-3 w-3" aria-hidden="true" />
+        전체 재사용
+      </button>
+      <button
+        type="button"
+        onClick={() => applyAll(false)}
+        className="flex items-center gap-1 rounded border px-1.5 py-0.5 text-[11px] font-medium text-amber-700 border-amber-300 bg-amber-50 hover:bg-amber-100 dark:text-amber-400 dark:border-amber-800 dark:bg-amber-950 dark:hover:bg-amber-900 transition-colors"
+        title="저장본이 있는 파일을 모두 새로 생성으로 설정"
+      >
+        <RefreshCw className="h-3 w-3" aria-hidden="true" />
+        전체 새로생성
+      </button>
+    </div>
+  );
+}
+
 // ── 재귀 트리 노드 ────────────────────────────────────────────
 interface TreeNodeProps {
   node: FileNode;
@@ -196,6 +239,9 @@ export function FileTreePanel({
           </Button>
         </div>
       </div>
+
+      {/* 저장본 일괄 재사용/새로생성 (체크된 파일이 있으면 그 파일만 적용) */}
+      <BulkReuseToggle />
 
       {/* 트리 */}
       <div className="border rounded-lg overflow-auto max-h-64">
