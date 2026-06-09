@@ -21,7 +21,7 @@ import type { OutputType } from "@/types";
 import type { GenerateRequestBody, GenerateResponseBody } from "@/app/api/generate/route";
 
 export default function GeneratePage() {
-  const { tree, addFiles, clearFiles, toggleCheck, checkAll, uncheckAll } = useFileTreeStore();
+  const { tree, addFiles, clearFiles, toggleCheck, checkAll, uncheckAll, removeCheckedFiles } = useFileTreeStore();
   const { settings, updateSettings } = useAiSettingsStore();
   const { options, progress, setOptions } = useGenerationStore();
 
@@ -97,6 +97,13 @@ export default function GeneratePage() {
   function handleClear() {
     clearFiles();
     setExpandedIds(new Set());
+  }
+
+  function handleDeleteChecked() {
+    const count = useFileTreeStore.getState().tree.selectedFiles;
+    if (count === 0) return;
+    if (!confirm(`선택된 파일 ${count}개를 삭제하시겠습니까?`)) return;
+    removeCheckedFiles();
   }
 
   function handleOutputFormatChange(format: OutputType, checked: boolean) {
@@ -249,6 +256,7 @@ export default function GeneratePage() {
                 onCheckAll={checkAll}
                 onUncheckAll={uncheckAll}
                 onClear={handleClear}
+                onDeleteChecked={handleDeleteChecked}
               />
             </CardContent>
           </Card>

@@ -24,6 +24,8 @@ interface FileTreeState {
   toggleCheck: (nodeId: string) => void;
   checkAll: () => void;
   uncheckAll: () => void;
+  /** 체크된 파일을 트리/업로드 목록에서 제거하고 제거된 개수를 반환 */
+  removeCheckedFiles: () => number;
   getSelectedFiles: () => UploadedFile[];
   setReuse: (path: string, reuse: boolean) => void;
   /** 저장본이 있는 파일들의 재사용 여부를 일괄 설정 (paths 미지정 시 전체 파일 대상) */
@@ -109,6 +111,27 @@ function collectSelectedPaths(nodes: FileNode[]): string[] {
   return paths;
 }
 
+/** 체크된 파일 노드를 제거하고, 자식이 모두 사라진 폴더도 함께 제거 */
+function removeCheckedNodes(nodes: FileNode[]): FileNode[] {
+  const result: FileNode[] = [];
+  for (const node of nodes) {
+    if (node.type === "file") {
+      if (node.checkState === "checked") continue; // 체크된 파일 제거
+      result.push(node);
+      continue;
+    }
+    // 폴더: 자식 정리 후 빈 폴더면 제거
+    const children = node.children ? removeCheckedNodes(node.children) : [];
+    if (children.length === 0) continue;
+    result.push({
+      ...node,
+      children,
+      checkState: deriveParentCheckState(children),
+    });
+  }
+  return result;
+}
+
 export const useFileTreeStore = create<FileTreeState>((set, get) => ({
   tree: { root: [], totalFiles: 0, selectedFiles: 0 },
   uploadedFiles: [],
@@ -177,6 +200,27 @@ export const useFileTreeStore = create<FileTreeState>((set, get) => ({
         selectedFiles: 0,
       },
     })),
+
+  removeCheckedFiles: () => {
+    const state = get();
+    const removedPaths = new Set(collectSelectedPaths(state.tree.root));
+    if (removedPaths.size === 0) return 0;
+
+    const newRoot = removeCheckedNodes(state.tree.root);
+    const reuseByPath = { ...state.reuseByPath };
+    for (const p of removedPaths) delete reuseByPath[p];
+
+    set({
+      tree: {
+        root: newRoot,
+        totalFiles: countFiles(newRoot),
+        selectedFiles: countSelectedFiles(newRoot),
+      },
+      uploadedFiles: state.uploadedFiles.filter((f) => !removedPaths.has(f.path)),
+      reuseByPath,
+    });
+    return removedPaths.size;
+  },
 
   getSelectedFiles: () => {
     const state = get();
