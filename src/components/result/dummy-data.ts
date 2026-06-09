@@ -11,6 +11,7 @@ export const DUMMY_PARSE_RESULT: ManualResult = {
       systemName: "학사행정",
       subSystem: "학생관리",
       programName: "학생등록관리",
+      appTitle: "학생등록관리",
       description: "학생의 기본정보를 등록·수정·삭제하는 화면입니다.",
       author: "홍길동",
       createDate: "2026-01-15",
@@ -204,7 +205,7 @@ export const DUMMY_RESULTS: ManualResult[] = [
     parseResult: {
       ...DUMMY_PARSE_RESULT.parseResult,
       filePath: "FIN/FIN_수강료납부현황.clx.js",
-      overview: { systemName: "학사행정", subSystem: "수강관리", programName: "수강료납부현황", description: "학생별 수강료 납부 현황을 조회하는 화면입니다.", author: "", createDate: "" },
+      overview: { systemName: "학사행정", subSystem: "수강관리", programName: "수강료납부현황", appTitle: "수강료납부현황", description: "학생별 수강료 납부 현황을 조회하는 화면입니다.", author: "", createDate: "" },
     },
     tokenUsage: { prompt_tokens: 550, completion_tokens: 430, total_tokens: 980 },
   },
