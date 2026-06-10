@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { FileCode2, Folder, FolderOpen, Minus, Square, CheckSquare, Database, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -213,6 +214,8 @@ export function FileTreePanel({
   onClear,
   onDeleteChecked,
 }: FileTreePanelProps) {
+  const [rootExpanded, setRootExpanded] = useState(true);
+
   if (nodes.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">
@@ -222,20 +225,27 @@ export function FileTreePanel({
     );
   }
 
+  // 루트 폴더 체크 상태: 전체 파일의 선택 현황에서 도출
+  const rootCheckState: CheckState =
+    selectedFiles === 0
+      ? "unchecked"
+      : selectedFiles === totalFiles
+      ? "checked"
+      : "indeterminate";
+
+  function handleToggleRoot() {
+    if (rootCheckState === "checked") onUncheckAll();
+    else onCheckAll();
+  }
+
   return (
     <div className="space-y-3">
-      {/* 헤더: 선택 통계 + 일괄 버튼 */}
+      {/* 헤더: 선택 통계 + 삭제/초기화 */}
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
           <span className="font-medium text-foreground">{selectedFiles}</span> / {totalFiles}개 선택
         </p>
         <div className="flex gap-2">
-          <Button variant="ghost" size="sm" onClick={onCheckAll} className="h-7 text-xs">
-            전체 선택
-          </Button>
-          <Button variant="ghost" size="sm" onClick={onUncheckAll} className="h-7 text-xs">
-            전체 해제
-          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -258,16 +268,60 @@ export function FileTreePanel({
       {/* 트리 */}
       <div className="border rounded-lg overflow-auto max-h-64">
         <ul role="tree" aria-label="업로드된 파일 목록" className="py-1">
-          {nodes.map((node) => (
-            <TreeNode
-              key={node.id}
-              node={node}
-              depth={0}
-              expandedIds={expandedIds}
-              onToggleCheck={onToggleCheck}
-              onToggleExpand={onToggleExpand}
-            />
-          ))}
+          {/* 루트 폴더: 체크 시 전체 파일 선택/해제 */}
+          <li>
+            <div
+              className="flex items-center gap-1.5 rounded-md px-2 py-1 hover:bg-muted/50 transition-colors"
+              style={{ paddingLeft: "8px" }}
+            >
+              <button
+                type="button"
+                onClick={handleToggleRoot}
+                className="flex items-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded"
+                aria-label={`전체 파일 ${rootCheckState === "checked" ? "선택 해제" : "선택"}`}
+                aria-checked={
+                  rootCheckState === "checked"
+                    ? true
+                    : rootCheckState === "indeterminate"
+                    ? "mixed"
+                    : false
+                }
+                role="checkbox"
+              >
+                <CheckIcon state={rootCheckState} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setRootExpanded((v) => !v)}
+                className="flex items-center gap-1.5 flex-1 min-w-0 focus-visible:outline-none"
+                aria-expanded={rootExpanded}
+                aria-label={`전체 파일 폴더 ${rootExpanded ? "접기" : "펼치기"}`}
+              >
+                {rootExpanded ? (
+                  <FolderOpen className="h-4 w-4 text-yellow-500 shrink-0" aria-hidden="true" />
+                ) : (
+                  <Folder className="h-4 w-4 text-yellow-500 shrink-0" aria-hidden="true" />
+                )}
+                <span className="text-sm font-medium truncate">전체 파일</span>
+                <span className="text-xs text-muted-foreground shrink-0">({totalFiles})</span>
+              </button>
+            </div>
+
+            {rootExpanded && (
+              <ul role="group">
+                {nodes.map((node) => (
+                  <TreeNode
+                    key={node.id}
+                    node={node}
+                    depth={1}
+                    expandedIds={expandedIds}
+                    onToggleCheck={onToggleCheck}
+                    onToggleExpand={onToggleExpand}
+                  />
+                ))}
+              </ul>
+            )}
+          </li>
         </ul>
       </div>
     </div>
