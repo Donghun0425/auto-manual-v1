@@ -123,6 +123,93 @@ export function extractPopupUrl(body: string): string | null {
   return null;
 }
 
+/** 함수 바디에서 추출한 팝업/서비스 전달 매개변수 한 건 */
+interface PopupParam {
+  key: string;        // 매개변수 키 (예: P_CRTR_YR)
+  label: string;      // 표시 라벨 (인라인 주석 우선, 없으면 키 접두사 매핑)
+  isLiteral: boolean; // 값이 문자열 리터럴(고정값)이면 true → 사용자 입력 아님
+}
+
+/** 키 토큰 → 한글 라벨 매핑 (인라인 주석이 없을 때 폴백) */
+const PARAM_TOKEN_LABEL: Record<string, string> = {
+  CRTR:  '기준',
+  TRGT:  '대상',
+  REG:   '등록',
+  YR:    '연도',
+  SMSTR: '학기',
+  CLG:   '대학',
+  SCYR:  '학년',
+  NM:    '명',
+};
+
+/** 매개변수 키(P_CRTR_YR 등)를 토큰 매핑으로 한글 라벨화 */
+function keyToLabel(key: string): string {
+  const tokens = key.split('_').filter((t) => t && t.toUpperCase() !== 'P');
+  const parts = tokens.map((t) => PARAM_TOKEN_LABEL[t.toUpperCase()] ?? '').filter(Boolean);
+  return parts.join(' ').trim();
+}
+
+/**
+ * 함수 바디에서 argumentsList["키"]=값; //주석 또는 parameters["키"]=값; //주석 형태의
+ * 매개변수를 추출한다. 라벨은 인라인 주석 우선, 없으면 키 접두사 매핑으로 폴백.
+ */
+function extractPopupParams(body: string): PopupParam[] {
+  const params: PopupParam[] = [];
+  const seen = new Set<string>();
+  const re = /(?:argumentsList|parameters)\s*\[\s*["']([^"']+)["']\s*\]\s*=\s*([^;\n]+);?[ \t]*(?:\/\/[ \t]*([^\n]*))?/gm;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body)) !== null) {
+    const key = m[1];
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const value = m[2].trim();
+    const comment = (m[3] ?? '').trim();
+    const isLiteral = /^["'][^"']*["']$/.test(value);
+    params.push({ key, label: comment || keyToLabel(key), isLiteral });
+  }
+  return params;
+}
+
+/** 라벨 앞쪽의 그룹 접두사(기준/복사/대상)를 제거하여 항목명만 남긴다 */
+function stripGroupPrefix(label: string, prefixes: string[]): string {
+  let l = label.trim();
+  for (const p of prefixes) {
+    if (l.startsWith(p)) {
+      l = l.slice(p.length).trim();
+      break;
+    }
+  }
+  return l;
+}
+
+/**
+ * 복사 매개변수를 기준/대상/기타 그룹으로 묶어 요약 문구를 만든다.
+ * 고정 리터럴 값(예: "ALL")은 사용자 입력이 아니므로 제외한다.
+ * 예) "복사 기준(연도·학기)과 복사 대상(연도·학기)"
+ */
+function summarizeCopyParams(params: PopupParam[]): string {
+  const base: string[] = [];
+  const target: string[] = [];
+  const other: string[] = [];
+  for (const p of params) {
+    if (p.isLiteral) continue; // 고정값 제외
+    const k = p.key.toUpperCase();
+    if (/기준/.test(p.label) || /CRTR/.test(k)) base.push(stripGroupPrefix(p.label, ['기준']));
+    else if (/복사|대상/.test(p.label) || /TRGT/.test(k)) target.push(stripGroupPrefix(p.label, ['복사', '대상']));
+    else other.push(p.label);
+  }
+  const norm = (arr: string[]) =>
+    Array.from(new Set(arr.map((s) => s.replace(/년도/g, '연도').trim()).filter(Boolean)));
+  const b = norm(base);
+  const t = norm(target);
+  const o = norm(other);
+  const parts: string[] = [];
+  if (b.length) parts.push(`복사 기준(${b.join('·')})`);
+  if (t.length) parts.push(`복사 대상(${t.join('·')})`);
+  if (o.length) parts.push(o.join('·'));
+  return parts.join('과 ');
+}
+
 /**
  * 버튼 클릭 함수 바디를 분석하여 다단계 설명 생성
  * @returns \n 구분 Step1.~StepN. 형식 문자열, 패턴 미매칭 시 null
@@ -161,6 +248,14 @@ function analyzeBtnFunctionBody(body: string, btnName: string): string | null {
       steps.push('Step2. 변경할 값을 입력한다.');
       steps.push(`Step3. '${name}' 버튼을 클릭하여 선택된 항목을 일괄 변경한다.`);
       if (hasConfirm) steps.push("Step4. 확인 메시지가 나타나면 '예'를 클릭하여 완료한다.");
+    } else if (hasCheckedRows || /생성/.test(name)) {
+      steps.push('Step1. 생성 조건을 선택한다.');
+      steps.push(`Step2. '${name}' 버튼을 클릭하여 일괄 생성한다.`);
+      if (hasConfirm) steps.push("Step3. 확인 메시지가 나타나면 '예'를 클릭하여 완료한다.");   
+    } else if (hasCheckedRows || /삭제/.test(name)) {
+      steps.push('Step1. 삭제 조건을 선택한다.');
+      steps.push(`Step2. '${name}' 버튼을 클릭하여 일괄 삭제한다.`);
+      if (hasConfirm) steps.push("Step3. 확인 메시지가 나타나면 '예'를 클릭하여 완료한다.");               
     } else {
       steps.push('Step1. 변경할 값을 입력한다.');
       steps.push(`Step2. '${name}' 버튼을 클릭하여 대상 항목을 일괄 변경한다.`);
@@ -194,8 +289,30 @@ function analyzeBtnFunctionBody(body: string, btnName: string): string | null {
 
   // 복사
   if (/복사/.test(name)) {
+    const hasPopup = /openPopup|PatisUtils\.openPopup/.test(body);
+    // 미저장 자료 가드: alert 메시지에 '저장'을 포함하며 return false 하는 사전조건
+    const hasSaveGuard = /return\s+false/.test(body) && /alert\s*\([^)]*저장/.test(body);
+
+    if (hasPopup) {
+      // 팝업 기반 복사: 전달 매개변수를 분석해 입력/선택 항목을 안내
+      const summary = summarizeCopyParams(extractPopupParams(body));
+      let n = 1;
+      if (hasSaveGuard) steps.push(`Step${n++}. 수정 중인 자료가 있으면 먼저 저장한다.`);
+      steps.push(`Step${n++}. '${name}' 버튼을 클릭하여 복사 팝업을 연다.`);
+      steps.push(
+        summary
+          ? `Step${n++}. 팝업에서 ${summary}을 선택한다.`
+          : `Step${n++}. 팝업에서 복사 기준과 복사 대상을 선택한다.`
+      );
+      if (hasConfirm) steps.push(`Step${n++}. 확인 메시지가 나타나면 '예'를 클릭하여 복사를 완료한다.`);
+      else steps.push(`Step${n++}. 선택한 기준의 자료가 대상으로 복사된다.`);
+      return steps.join('\n');
+    }
+
+    // 팝업 없음: 그리드 선택 기반 복사 (폴백)
     steps.push('Step1. 복사하고자 하는 항목을 선택한다.');
     steps.push(`Step2. '${name}' 버튼을 클릭하여 항목을 복사한다.`);
+    if (hasConfirm) steps.push("Step3. 확인 메시지가 나타나면 '예'를 클릭하여 완료한다.");
     return steps.join('\n');
   }
 
