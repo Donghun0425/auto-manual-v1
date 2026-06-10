@@ -194,7 +194,8 @@ async function callDifyAi(
   const baseUrl = (settings.internalBaseUrl ?? "https://ax.acanet.asia/v1").replace(/\/$/, "");
   const url = `${baseUrl}/chat-messages`;
 
-  // system 메시지를 지시사항으로, user 메시지를 query로 병합
+  // system 메시지를 context(지시사항)로, user 메시지를 query로 분리한다.
+  // Dify 앱은 입력 폼에 context 변수를 요구하므로 inputs.context를 반드시 채워야 한다.
   const systemParts: string[] = [];
   const userParts: string[] = [];
   for (const msg of messages) {
@@ -204,12 +205,15 @@ async function callDifyAi(
       userParts.push(msg.content);
     }
   }
-  const query = systemParts.length > 0
-    ? `[지시사항]\n${systemParts.join("\n")}\n\n[요청]\n${userParts.join("\n")}`
-    : userParts.join("\n");
+  const systemText = systemParts.join("\n").trim();
+  const userText = userParts.join("\n").trim();
+
+  const context =
+    systemText || "당신은 비개발자가 이해할 수 있도록 친절하게 설명하는 도우미입니다.";
+  const query = userText || systemText;
 
   const difyPayload = {
-    inputs: {},
+    inputs: { context },
     query,
     response_mode: "blocking",
     user: "auto-manual-generator",
