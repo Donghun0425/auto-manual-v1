@@ -7,6 +7,7 @@
  */
 import { ConditionControlInfo, InfoGroupInfo } from '@/types';
 import { normalizeLabel } from '@/lib/utils';
+import { isControlVisibleInLayout } from './visibility';
 
 /** 입력 컨트롤로 간주하는 타입 집합 */
 const INPUT_TYPES = new Set([
@@ -130,6 +131,9 @@ export function parseInfoGroups(content: string): InfoGroupInfo[] {
       if (dataCtrlId.includes('NOTHING')) continue;
       // 3) 라벨을 찾지 못해 controlId 자체가 라벨로 폴백된 경우
       if (labelText === controlId || labelText === dataCtrlId) continue;
+
+      // 4) visible = false 로 명시된 컨트롤은 화면에 노출되지 않으므로 제외
+      if (!isControlVisibleInLayout(body, dataCtrlId)) continue;
 
       const ctrlType = controlTypeMap.get(dataCtrlId) ?? 'InputBox';
       const isInput = INPUT_TYPES.has(ctrlType);

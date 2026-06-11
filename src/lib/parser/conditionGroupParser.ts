@@ -160,6 +160,8 @@ function parseBodyControls(body: string, fullContent: string): Array<{
   rowIndex: number;
   isReadOnly: boolean;
   isDisabled: boolean;
+  valueChangeHandler?: string; // CheckBox value-change 핸들러 함수명
+  trueValue?: string;          // CheckBox trueValue
 }> {
   const result: ReturnType<typeof parseBodyControls> = [];
 
@@ -291,7 +293,22 @@ function parseBodyControls(body: string, fullContent: string): Array<{
     const isReadOnly = new RegExp(`${varName}\\.readOnly\\s*=\\s*true`).test(outerBody);
     const isDisabled = new RegExp(`${varName}\\.enable\\s*=\\s*false`).test(outerBody);
 
-    result.push({ varName, controlId, controlType: type, fullType: fType, labelValue, colIndex, rowIndex, isReadOnly, isDisabled });
+    // visible = false 로 명시된 컨트롤은 화면에 노출되지 않으므로 항목에서 제외
+    if (new RegExp(`${varName}\\.visible\\s*=\\s*false\\b`).test(outerBody)) continue;
+
+    // CheckBox: value-change 핸들러명과 trueValue 추출 (조회 기준 전환 토글 분석용)
+    let valueChangeHandler: string | undefined;
+    let trueValue: string | undefined;
+    if (type === 'CheckBox') {
+      const vcRe = new RegExp(`${varName}\\.addEventListener\\(\\s*"value-change"\\s*,\\s*(\\w+)\\s*\\)`);
+      const vcM = vcRe.exec(outerBody);
+      if (vcM) valueChangeHandler = vcM[1];
+      const tvRe = new RegExp(`${varName}\\.trueValue\\s*=\\s*"([^"]+)"`);
+      const tvM = tvRe.exec(outerBody);
+      if (tvM) trueValue = tvM[1];
+    }
+
+    result.push({ varName, controlId, controlType: type, fullType: fType, labelValue, colIndex, rowIndex, isReadOnly, isDisabled, valueChangeHandler, trueValue });
   }
 
   // 중첩 컨테이너 내 컨트롤: 부모 rowIndex + 내부 rowIndex 오프셋 적용
@@ -319,9 +336,95 @@ function parseBodyControls(body: string, fullContent: string): Array<{
 /** 처리조건/일괄처리 그룹에서 버튼 역할을 하는 컨트롤 타입 */
 const ACTION_TYPES = new Set(['Button', 'PatisFileToList']);
 
+/** 라벨 없는 조회 기준 전환 체크박스의 표시 항목명 */
+const TOGGLE_CHECKBOX_LABEL = '조회 기준 선택';
+
+/** content에서 `function name(...) { ... }` 본문(중괄호 포함)을 추출 */
+function extractNamedFunctionBody(content: string, fnName: string): string {
+  const fnIdx = content.indexOf(`function ${fnName}`);
+  if (fnIdx < 0) return '';
+  const start = content.indexOf('{', fnIdx);
+  if (start < 0) return '';
+  let depth = 0;
+  for (let i = start; i < content.length; i++) {
+    if (content[i] === '{') depth++;
+    else if (content[i] === '}') {
+      depth--;
+      if (depth === 0) return content.slice(start, i + 1);
+    }
+  }
+  return '';
+}
+
+/** 여는 중괄호 위치부터 짝이 맞는 닫는 중괄호까지 블록 본문과 끝 위치 반환 */
+function extractBraceBlock(s: string, braceIdx: number): { body: string; end: number } {
+  let depth = 0;
+  for (let i = braceIdx; i < s.length; i++) {
+    if (s[i] === '{') depth++;
+    else if (s[i] === '}') {
+      depth--;
+      if (depth === 0) return { body: s.slice(braceIdx + 1, i), end: i };
+    }
+  }
+  return { body: s.slice(braceIdx + 1), end: s.length };
+}
+
+/**
+ * 조회 기준 전환 체크박스의 value-change 핸들러 본문을 분석하여
+ * 체크/해제 시 활성화되는 항목 라벨 힌트 문자열을 생성한다.
+ * - if/else 블록에서 setObjectEnable(true...) / setEnable(true...) 대상 controlId를 수집
+ * - if 조건이 비교하는 값이 trueValue와 같으면 if블록을 '체크' 상태로 간주
+ */
+function analyzeToggleHandler(
+  handlerBody: string,
+  idToLabel: Map<string, string>,
+  trueValue: string,
+): string | null {
+  const ifMatch = /if\s*\(([^)]*)\)\s*\{/.exec(handlerBody);
+  if (!ifMatch) return null;
+  const ifBraceIdx = ifMatch.index + ifMatch[0].length - 1;
+  const ifBlock = extractBraceBlock(handlerBody, ifBraceIdx);
+
+  let elseBody = '';
+  const afterIf = handlerBody.slice(ifBlock.end + 1);
+  const elseMatch = /^\s*else\s*\{/.exec(afterIf);
+  if (elseMatch) {
+    const elseBraceIdx = elseMatch.index + elseMatch[0].length - 1;
+    elseBody = extractBraceBlock(afterIf, elseBraceIdx).body;
+  }
+
+  const enabledLabels = (block: string): string[] => {
+    const labels: string[] = [];
+    const re = /app\.lookup\("([^"]+)"\)\.set(?:Object)?Enable\(\s*true/g;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(block)) !== null) {
+      const label = idToLabel.get(m[1]);
+      if (label && !labels.includes(label)) labels.push(label);
+    }
+    return labels;
+  };
+
+  const ifLabels = enabledLabels(ifBlock.body);
+  const elseLabels = enabledLabels(elseBody);
+  if (ifLabels.length === 0 && elseLabels.length === 0) return null;
+
+  const condVal = /==\s*"([^"]+)"/.exec(ifMatch[1])?.[1];
+  const ifIsChecked = condVal != null && condVal === trueValue;
+
+  const checkedLabels = ifIsChecked ? ifLabels : elseLabels;
+  const uncheckedLabels = ifIsChecked ? elseLabels : ifLabels;
+
+  const parts: string[] = [];
+  if (checkedLabels.length > 0) parts.push(`체크 시 '${checkedLabels.join(', ')}' 항목으로 조회`);
+  if (uncheckedLabels.length > 0) parts.push(`체크 해제 시 '${uncheckedLabels.join(', ')}' 항목으로 조회`);
+  if (parts.length === 0) return null;
+  return `이 체크박스로 조회 기준을 전환합니다 (${parts.join(', ')}).`;
+}
+
 function buildPairs(
   controls: ReturnType<typeof parseBodyControls>,
   groupType: ConditionGroupInfo['groupType'],
+  fullContent: string,
 ): ConditionControlInfo[] {
   // CONDITIONGROUP(처리조건)만 단독 액션 항목으로 처리; BATCH_GROUP(일괄처리) 버튼은 extraButtons 경로로 사용방법에 표기
   const isActionGroup = groupType === '처리조건';
@@ -344,6 +447,35 @@ function buildPairs(
 
   const result: ConditionControlInfo[] = [];
 
+  // controlId → 라벨 매핑 (토글 체크박스 활성화 대상 라벨 해석용)
+  const idToLabel = new Map<string, string>();
+  for (const c of controls) {
+    if (c.labelValue) idToLabel.set(c.controlId, c.labelValue);
+  }
+
+  // 조회조건 그룹: 맨 앞 라벨 없는 토글 체크박스 분석 → 동작 힌트 생성
+  const toggleHints = new Map<string, string>();
+  if (groupType === '조회조건') {
+    const otherInputs = controls.filter(
+      (c) => !SKIP_TYPES.has(c.controlType) && c.controlType !== 'CheckBox',
+    );
+    for (const c of controls) {
+      if (c.controlType !== 'CheckBox') continue;
+      if (c.labelValue) continue;               // 라벨(text) 있는 일반 체크박스 제외
+      if (!c.valueChangeHandler) continue;       // value-change 핸들러 없으면 제외
+      // 같은 행에서 이 체크박스보다 앞(작은 colIndex)에 Output 라벨이 없어야 함
+      const hasLeadingLabel = controls.some(
+        (o) => o.controlType === 'Output' && o.rowIndex === c.rowIndex && o.colIndex < c.colIndex,
+      );
+      if (hasLeadingLabel) continue;
+      if (otherInputs.length === 0) continue;    // 뒤에 다른 입력 컨트롤이 있어야 함
+      const handlerBody = extractNamedFunctionBody(fullContent, c.valueChangeHandler);
+      if (!handlerBody) continue;
+      const hint = analyzeToggleHandler(handlerBody, idToLabel, c.trueValue ?? '');
+      if (hint) toggleHints.set(c.controlId, hint);
+    }
+  }
+
   for (const [, row] of rowMap) {
     row.labels.sort((a, b) => a.colIndex - b.colIndex);
     row.inputs.sort((a, b) => a.colIndex - b.colIndex);
@@ -353,11 +485,35 @@ function buildPairs(
 
     for (const input of row.inputs) {
       let labelText: string;
+      let logicHint: string | undefined;
+      let skipDictionary: boolean | undefined;
 
-      if ((isUdcType(input.fullType) && !OUTPUT_LABEL_UDCS.has(input.controlType))
-          || input.controlType === 'CheckBox'
-          || input.controlType === 'RadioButton') {
-        // UDC, CheckBox, RadioButton: 자체 라벨 우선
+      if (input.controlType === 'RadioButton') {
+        // 라디오: T_{controlId} Output을 항목명으로 우선 사용, 선택지 텍스트는 동작 힌트로 전달
+        const tLabel = controls.find(
+          (l) => l.controlType === 'Output' && l.controlId === `T_${input.controlId}` && l.labelValue,
+        )?.labelValue;
+        if (tLabel) {
+          labelText = tLabel;
+          if (input.labelValue) logicHint = `선택지: ${input.labelValue}`;
+        } else if (input.labelValue) {
+          labelText = input.labelValue;
+        } else {
+          const closest = row.labels
+            .slice()
+            .sort((a, b) =>
+              Math.abs(a.colIndex - input.colIndex) - Math.abs(b.colIndex - input.colIndex),
+            )[0];
+          labelText = closest?.labelValue ?? input.controlId;
+        }
+      } else if (toggleHints.has(input.controlId)) {
+        // 라벨 없는 조회 기준 전환 체크박스: 고정 항목명 + 동작 힌트, 사전 재사용 제외
+        labelText = TOGGLE_CHECKBOX_LABEL;
+        logicHint = toggleHints.get(input.controlId);
+        skipDictionary = true;
+      } else if ((isUdcType(input.fullType) && !OUTPUT_LABEL_UDCS.has(input.controlType))
+          || input.controlType === 'CheckBox') {
+        // UDC, CheckBox: 자체 라벨 우선
         if (input.labelValue) {
           labelText = input.labelValue;
         } else {
@@ -423,6 +579,8 @@ function buildPairs(
         description: '',
         controlType: input.controlType,
         inputType: (input.isReadOnly || input.isDisabled) ? '표시' : '입력',
+        ...(logicHint ? { logicHint } : {}),
+        ...(skipDictionary ? { skipDictionary } : {}),
       });
     }
   }
@@ -547,7 +705,7 @@ export function parseConditionGroups(content: string): ConditionGroupInfo[] {
     }
 
     const controls = parseBodyControls(body, content);
-    const pairs = buildPairs(controls, groupType);
+    const pairs = buildPairs(controls, groupType, content);
 
     if (pairs.length > 0 || groupTitle) {
       groups.push({ groupId, groupType, title: groupTitle, controls: pairs });

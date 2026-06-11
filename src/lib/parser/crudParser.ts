@@ -3,7 +3,13 @@
  * - PatisMenuTitleBar (Form_inq~, Form_new~, Form_save~, Form_del~, Form_ext~)
  * - PatisTitleBar (TitleForm_inq~, TitleForm_new~, TitleForm_save~, TitleForm_del~, TitleForm_ext~)
  */
-import { CrudInfo, ExtButtonInfo } from '@/types';
+import { CrudInfo, CrudOperationLogic, CrudOperationType, ExtButtonInfo, ExtButtonLogic } from '@/types';
+import { parseRequiredFields } from './validationParser';
+
+/** 저장 버튼 프레임워크 기본 가드 메시지 (PatisMenuTitleBar 내장 동작) */
+const DEFAULT_SAVE_GUARD_MSG = '저장할 내역이 없습니다.';
+/** 삭제 버튼 프레임워크 기본 가드 메시지 (PatisMenuTitleBar 내장 동작) */
+const DEFAULT_DELETE_GUARD_MSG = '삭제할 내역이 없습니다.';
 
 /**
  * CSS 클래스명 → 버튼 라벨 매핑
@@ -42,8 +48,9 @@ export function parseMenuTitleBarCrud(content: string): CrudInfo {
     extButtons: [],
   };
 
-  // 조회 함수 감지 (Form_inqAction 또는 Form_inqClick)
-  result.hasInquiry = /function\s+Form_inq(Action|Click)\s*\(/.test(content);
+  // 조회 함수 감지 - inqAction 본문에 실질 로직이 있어야 함 (전처리 Click만으로는 불인정)
+  result.hasInquiry = /function\s+Form_inqAction\s*\(/.test(content)
+    && !isFunctionBodyEmpty(extractFunctionBody(content, 'Form_inqAction'));
 
   // 신규 함수 감지 - 함수 존재 여부만 확인 (newAction은 빈 바디도 허용)
   result.hasNew = /function\s+Form_new(Action|Click)\s*\(/.test(content);
@@ -65,14 +72,22 @@ export function parseMenuTitleBarCrud(content: string): CrudInfo {
     const body = extractFunctionBody(content, `Form_ext${btnIndex}Click`);
     const popupUrl = extractPopupUrl(body) ?? undefined;
     const desc = analyzeBtnFunctionBody(body, resolvedName);
+    const logic = analyzeExtButtonLogic(content, `Form_ext${btnIndex}Click`);
     result.extButtons.push({
       name: resolvedName,
       functionName: `Form_ext${btnIndex}Click`,
       index: btnIndex,
       ...(popupUrl ? { popupUrl } : {}),
       ...(desc ? { description: desc } : {}),
+      ...(logic ? { logic } : {}),
     });
   }
+
+  // CRUD 작업별 비즈니스 로직 추출 (저장 시 필수입력값/중복불가키 주입)
+  const requiredTexts = parseRequiredFields(content).flatMap((rf) => rf.texts);
+  const uniqueKeys = parseUniqueKeys(content);
+  const operations = buildCrudOperations(content, result, 'Form', requiredTexts, uniqueKeys);
+  if (operations.length > 0) result.operations = operations;
 
   return result;
 }
@@ -122,6 +137,243 @@ export function extractPopupUrl(body: string): string | null {
   if (callMatch) return callMatch[1];
   return null;
 }
+
+/**
+ * 함수 바디 내 alert("...") 메시지를 추출한다.
+ * 이스케이프된 \n 은 공백으로 정리한다.
+ */
+function collectAlertsInBody(body: string): string[] {
+  if (!body) return [];
+  const messages: string[] = [];
+  const re = /alert\s*\(\s*"([^"]+)"\s*\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body)) !== null) {
+    messages.push(m[1].replace(/\\n/g, ' ').trim());
+  }
+  return messages;
+}
+
+/** unique1Text(중복불가키) 배열을 추출한다. 예: new Array("기준년도","기준학기") → [기준년도, 기준학기] */
+export function parseUniqueKeys(content: string): string[] {
+  const m = /setAppProperty\(\s*app\s*,\s*app\.lookup\("[^"]+"\)\s*,\s*"unique1Text",\s*new Array\(([^)]+)\)\)/.exec(content);
+  if (!m) return [];
+  const keys: string[] = [];
+  const re = /"([^"]+)"/g;
+  let inner: RegExpExecArray | null;
+  while ((inner = re.exec(m[1])) !== null) {
+    if (inner[1].trim()) keys.push(inner[1].trim());
+  }
+  return keys;
+}
+
+/** 완료 메시지 패턴 (After 함수에서 분리 보관) */
+const COMPLETION_MSG_RE = /(되었습니다|완료되었습니다|하였습니다)/;
+
+/**
+ * 단일 CRUD 작업의 비즈니스 로직을 함수 라이프사이클(Click→Action→After)에서 정적 분석한다.
+ * @param content      파일 전체 내용
+ * @param operation    작업 종류 (조회/신규/저장/삭제)
+ * @param prefix       함수 접두사 (Form 또는 TitleForm)
+ * @param requiredTexts 필수 입력값 (저장 전용)
+ * @param uniqueTexts  중복 불가 키 (저장 전용)
+ */
+function analyzeCrudOperation(
+  content: string,
+  operation: CrudOperationType,
+  prefix: 'Form' | 'TitleForm',
+  requiredTexts: string[] = [],
+  uniqueTexts: string[] = []
+): CrudOperationLogic {
+  const opKey = operation === '조회' ? 'inq'
+    : operation === '신규' ? 'new'
+    : operation === '저장' ? 'save'
+    : 'del';
+
+  const clickBody  = extractFunctionBody(content, `${prefix}_${opKey}Click`);
+  const actionBody = extractFunctionBody(content, `${prefix}_${opKey}Action`);
+  const afterBody  = extractFunctionBody(content, `${prefix}_${opKey}After`);
+
+  // 시그널 분석 (analyzeBtnFunctionBody와 동일 패턴 재사용 + PatisTransaction 추가)
+  const combinedBody = clickBody + '\n' + actionBody;
+  const hasConfirm = /app\.confirm\s*\(|confirm\s*\(/.test(combinedBody);
+  const hasServiceCall = /app\.serv\s*\(|serviceRequest|PatisTransaction\s*\(|\.post\s*\(|\.request\s*\(/.test(combinedBody);
+  const popupUrl = extractPopupUrl(actionBody) ?? extractPopupUrl(clickBody) ?? undefined;
+
+  // 검증 메시지 수집 (Click + Action)
+  const validations = [...collectAlertsInBody(clickBody), ...collectAlertsInBody(actionBody)];
+
+  // 사전조건: Click 전처리의 검증 메시지 (사용자가 먼저 취해야 할 행동/가드)
+  const preconditions = collectAlertsInBody(clickBody);
+
+  // 완료 메시지: After 함수에서 분리 보관 (프롬프트 미노출)
+  const completionMessage = collectAlertsInBody(afterBody).find((msg) => COMPLETION_MSG_RE.test(msg));
+
+  // 처리 단계 설명 (시그널 → 문장)
+  const processNotes: string[] = [];
+  if (popupUrl) processNotes.push('팝업 화면을 호출합니다.');
+  if (hasServiceCall) processNotes.push('서버에 전송하여 처리합니다.');
+  if (hasConfirm) processNotes.push('확인창에서 사용자 확인을 받습니다.');
+
+  const result: CrudOperationLogic = {
+    operation,
+    preconditions,
+    processNotes,
+    validations,
+    hasConfirm,
+    hasServiceCall,
+    ...(popupUrl ? { popupUrl } : {}),
+    ...(completionMessage ? { completionMessage } : {}),
+  };
+
+  // 저장 전용: 필수 입력값 + 중복 불가 키
+  if (operation === '저장') {
+    if (requiredTexts.length > 0) result.requiredFields = requiredTexts;
+    if (uniqueTexts.length > 0) result.uniqueKeys = uniqueTexts;
+    // 프레임워크 기본 가드 — 동일 의미 커스텀 가드가 없을 때만 주입
+    const hasCustomSaveGuard = validations.some((v) => /저장.*(없|내역)/.test(v) || /수정.*없/.test(v));
+    if (!hasCustomSaveGuard) preconditions.unshift(DEFAULT_SAVE_GUARD_MSG);
+  }
+
+  // 삭제 전용: 프레임워크 기본 가드 — 동일 의미 커스텀 가드가 없을 때만 주입
+  if (operation === '삭제') {
+    const hasCustomDeleteGuard = validations.some((v) => /삭제.*(없|내역)/.test(v) || /선택.*없/.test(v));
+    if (!hasCustomDeleteGuard) preconditions.unshift(DEFAULT_DELETE_GUARD_MSG);
+  }
+
+  return result;
+}
+
+/**
+ * CrudInfo의 활성 CRUD 플래그를 기준으로 operations 배열을 생성한다.
+ */
+function buildCrudOperations(
+  content: string,
+  crud: Pick<CrudInfo, 'hasInquiry' | 'hasNew' | 'hasSave' | 'hasDelete'>,
+  prefix: 'Form' | 'TitleForm',
+  requiredTexts: string[],
+  uniqueTexts: string[]
+): CrudOperationLogic[] {
+  const operations: CrudOperationLogic[] = [];
+  if (crud.hasInquiry) operations.push(analyzeCrudOperation(content, '조회', prefix));
+  if (crud.hasNew)     operations.push(analyzeCrudOperation(content, '신규', prefix));
+  if (crud.hasSave)    operations.push(analyzeCrudOperation(content, '저장', prefix, requiredTexts, uniqueTexts));
+  if (crud.hasDelete)  operations.push(analyzeCrudOperation(content, '삭제', prefix));
+  return operations;
+}
+
+/** 위임 추적 시 제외할 JS 예약어/내장 토큰 */
+const DELEGATION_KEYWORD_SET = new Set([
+  'if', 'for', 'while', 'do', 'return', 'function', 'switch', 'catch',
+  'typeof', 'instanceof', 'new', 'delete', 'void', 'throw', 'else',
+  'var', 'let', 'const', 'alert', 'confirm', 'parseInt', 'parseFloat',
+  'Number', 'String', 'Array', 'Boolean', 'console',
+]);
+
+/**
+ * 버튼 본문이 직접 호출하는 사용자 정의 함수의 본문을 1단계만 합쳐서 반환한다.
+ * (프레임워크/내장 함수, Form_/TitleForm_/App_ 접두 함수는 제외)
+ * @param content 파일 전체 내용
+ * @param body    버튼 클릭 핸들러 본문
+ */
+function resolveDelegatedBody(content: string, body: string): string {
+  if (!body) return '';
+  const collected: string[] = [];
+  const seen = new Set<string>();
+  for (const call of body.matchAll(/\b([a-zA-Z_$][\w$]*)\s*\(/g)) {
+    const fnName = call[1];
+    if (DELEGATION_KEYWORD_SET.has(fnName)) continue;
+    if (/^(Form_|TitleForm_|App_|Patis)/.test(fnName)) continue;
+    if (seen.has(fnName)) continue;
+    seen.add(fnName);
+    // 사용자 정의 함수만 (파일 내 function 선언 존재)
+    if (!new RegExp(`function\\s+${fnName}\\s*\\(`).test(content)) continue;
+    const delegated = extractFunctionBody(content, fnName);
+    if (delegated) collected.push(delegated);
+  }
+  return collected.join('\n');
+}
+
+/**
+ * 함수 바디 내 confirm("...") 인자 문자열을 추출한다.
+ * 이스케이프된 \n 은 공백으로 정리한다.
+ */
+function collectConfirmsInBody(body: string): string[] {
+  if (!body) return [];
+  const messages: string[] = [];
+  const re = /confirm\s*\(\s*"([^"]+)"\s*\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(body)) !== null) {
+    messages.push(m[1].replace(/\\n/g, ' ').trim());
+  }
+  return messages;
+}
+
+/**
+ * ext/독립 버튼의 비즈니스 로직을 본문(+1단계 위임 함수)에서 정적 분석한다.
+ * 의미있는 신호(가드/검증/확인/팝업/서버호출)가 없으면 undefined 반환.
+ * @param content      파일 전체 내용
+ * @param functionName 버튼 클릭 핸들러 함수명
+ */
+function analyzeExtButtonLogic(content: string, functionName: string): ExtButtonLogic | undefined {
+  const ownBody = extractFunctionBody(content, functionName);
+  if (!ownBody) return undefined;
+  const delegatedBody = resolveDelegatedBody(content, ownBody);
+  const combinedBody = ownBody + '\n' + delegatedBody;
+
+  // 시그널 분석
+  const hasConfirm = /app\.confirm\s*\(|confirm\s*\(/.test(combinedBody);
+  const hasServiceCall = /app\.serv\s*\(|serviceRequest|PatisTransaction\s*\(|\.post\s*\(|\.request\s*\(/.test(combinedBody);
+  const hasPopup = /openPopup|PatisUtils\.openPopup/.test(combinedBody);
+  const hasExcel = /ExcelExport|toExcel|exportExcel|exportAsExcel/i.test(combinedBody);
+  const hasPrint = /\.print\s*\(|printReport/i.test(combinedBody);
+  const hasGridUpdate = /updateData|setColumnValue|setRowValue|addRow|deleteRow|insertRow/.test(combinedBody);
+  const hasCheckedRows = /getCheckedRows|isChecked\s*\(|\.checked\b/i.test(combinedBody);
+  const popupUrl = extractPopupUrl(ownBody) ?? extractPopupUrl(delegatedBody) ?? undefined;
+
+  // 메시지 수집
+  const allAlerts = collectAlertsInBody(combinedBody);
+  const confirmMessages = collectConfirmsInBody(combinedBody);
+
+  // 완료 메시지 분리 (프롬프트 미노출)
+  const completionMessage = allAlerts.find((msg) => COMPLETION_MSG_RE.test(msg));
+
+  // 가드(진행 차단) vs 일반 검증 분리: alert 직후 return false 근접 여부
+  const guards: string[] = [];
+  const validations: string[] = [];
+  for (const msg of allAlerts) {
+    if (msg === completionMessage) continue;
+    const escaped = msg.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const guardRe = new RegExp(`alert\\s*\\(\\s*"${escaped}"\\s*\\)\\s*;?\\s*(?:return\\s+false|return\\s*;|e\\.preventDefault)`);
+    if (guardRe.test(combinedBody)) guards.push(msg);
+    else validations.push(msg);
+  }
+
+  // 처리 단계 설명 (시그널 → 문장)
+  const processNotes: string[] = [];
+  if (popupUrl || hasPopup) processNotes.push('팝업 화면을 호출합니다.');
+  if (hasExcel) processNotes.push('현재 목록을 엑셀 파일로 내보냅니다.');
+  if (hasPrint) processNotes.push('현재 화면을 인쇄합니다.');
+  if (hasCheckedRows) processNotes.push('선택(체크)한 항목을 대상으로 처리합니다.');
+  if (hasServiceCall) processNotes.push('서버에 전송하여 처리합니다.');
+  else if (hasGridUpdate) processNotes.push('화면의 데이터를 변경합니다.');
+
+  // 의미있는 신호가 전혀 없으면 logic 생략 (description 폴백 사용)
+  const hasSignal = guards.length > 0 || validations.length > 0 || confirmMessages.length > 0
+    || processNotes.length > 0 || hasConfirm || hasServiceCall;
+  if (!hasSignal) return undefined;
+
+  return {
+    guards,
+    validations,
+    confirmMessages,
+    processNotes,
+    hasConfirm,
+    hasServiceCall,
+    ...(popupUrl ? { popupUrl } : {}),
+    ...(completionMessage ? { completionMessage } : {}),
+  };
+}
+
 
 /** 함수 바디에서 추출한 팝업/서비스 전달 매개변수 한 건 */
 interface PopupParam {
@@ -368,7 +620,12 @@ export function parseTitleBarCrud(content: string): CrudInfo[] {
   const globalHasNew  = /function\s+TitleForm_new(Action|Click)\s*\(/.test(content); // 빈 바디도 허용
   const globalHasDel  = /function\s+TitleForm_del(Action|Click)\s*\(/.test(content)
     && !isFunctionBodyEmpty(extractFunctionBody(content, 'TitleForm_delAction'));
-  const globalHasInq  = /function\s+TitleForm_inq(Action|Click)\s*\(/.test(content);
+  const globalHasInq  = /function\s+TitleForm_inqAction\s*\(/.test(content)
+    && !isFunctionBodyEmpty(extractFunctionBody(content, 'TitleForm_inqAction'));
+
+  // 저장 작업 비즈니스 로직용 필수입력값/중복불가키 (파일 전역)
+  const titleRequiredTexts = parseRequiredFields(content).flatMap((rf) => rf.texts);
+  const titleUniqueKeys = parseUniqueKeys(content);
 
   // ext 버튼만 있고 CRUD 함수가 하나도 없는 경우:
   // hasNew/hasSave/hasDelete는 전역 함수 존재에 종속되므로 이미 false가 보장되지만,
@@ -420,7 +677,8 @@ export function parseTitleBarCrud(content: string): CrudInfo[] {
       const body = extractFunctionBody(content, fn);
       const popupUrl = extractPopupUrl(body) ?? undefined;
       const desc = analyzeBtnFunctionBody(body, name);
-      extButtons.push({ name, functionName: fn, index: idx, ...(popupUrl ? { popupUrl } : {}), ...(desc ? { description: desc } : {}) });
+      const logic = analyzeExtButtonLogic(content, fn);
+      extButtons.push({ name, functionName: fn, index: idx, ...(popupUrl ? { popupUrl } : {}), ...(desc ? { description: desc } : {}), ...(logic ? { logic } : {}) });
     };
 
     // 형식 B: varName.initAddButton(index, "label")
@@ -489,7 +747,10 @@ export function parseTitleBarCrud(content: string): CrudInfo[] {
 
   // ── Step 4: PatisTitleBar 선언이 전혀 없는 경우 최소 폴백 ──
   if (allBars.length === 0) {
-    return [{ hasInquiry: globalHasInq, hasNew: globalHasNew, hasSave: globalHasSave, hasDelete: globalHasDel, extButtons: globalExtButtons }];
+    const fallback: CrudInfo = { hasInquiry: globalHasInq, hasNew: globalHasNew, hasSave: globalHasSave, hasDelete: globalHasDel, extButtons: globalExtButtons };
+    const fbOps = buildCrudOperations(content, fallback, 'TitleForm', titleRequiredTexts, titleUniqueKeys);
+    if (fbOps.length > 0) fallback.operations = fbOps;
+    return [fallback];
   }
 
   // ── Step 4.5: title 기준 중복 제거 (같은 title을 가진 bars → 첫 번째만 유지, extButtons는 merge) ──
@@ -551,16 +812,21 @@ export function parseTitleBarCrud(content: string): CrudInfo[] {
   // (단일 파일이거나 단일 후보인 경우에만 허용 → 복수 타이틀바 간 블리딩 방지)
   const crudFallbackAllowed = isSingleBarInFile || isSingleSelected;
 
-  return selectedBars.map(tb => ({
-    hasInquiry: globalHasInq && !tb.inqHidden,
-    hasNew:     globalHasNew  && (tb.newVisible  || (crudFallbackAllowed && !tb.newHidden)),
-    hasSave:    globalHasSave && (tb.saveVisible || (crudFallbackAllowed && !tb.saveHidden)),
-    hasDelete:  globalHasDel  && (tb.delVisible  || (crudFallbackAllowed && !tb.delHidden)),
-    // ext 버튼: 자체 보유 우선; 단일 후보이고 없는 경우에만 전역 폴백 (다중 후보는 빈 배열)
-    extButtons: tb.extButtons.length > 0 ? tb.extButtons
-              : (isSingleSelected ? globalExtButtons : []),
-    title:      tb.title,
-  }));
+  return selectedBars.map(tb => {
+    const barCrud: CrudInfo = {
+      hasInquiry: globalHasInq && !tb.inqHidden,
+      hasNew:     globalHasNew  && (tb.newVisible  || (crudFallbackAllowed && !tb.newHidden)),
+      hasSave:    globalHasSave && (tb.saveVisible || (crudFallbackAllowed && !tb.saveHidden)),
+      hasDelete:  globalHasDel  && (tb.delVisible  || (crudFallbackAllowed && !tb.delHidden)),
+      // ext 버튼: 자체 보유 우선; 단일 후보이고 없는 경우에만 전역 폴백 (다중 후보는 빈 배열)
+      extButtons: tb.extButtons.length > 0 ? tb.extButtons
+                : (isSingleSelected ? globalExtButtons : []),
+      title:      tb.title,
+    };
+    const barOps = buildCrudOperations(content, barCrud, 'TitleForm', titleRequiredTexts, titleUniqueKeys);
+    if (barOps.length > 0) barCrud.operations = barOps;
+    return barCrud;
+  });
 }
 
 /** TitleForm_ext*Click 함수 전체 스캔 → extButtons 빌드 (전역 폴백용) */
@@ -572,12 +838,14 @@ function buildGlobalTitleExtButtons(content: string): ExtButtonInfo[] {
     const body     = extractFunctionBody(content, `TitleForm_ext${btnIndex}Click`);
     const popupUrl = extractPopupUrl(body) ?? undefined;
     const desc     = btnName ? analyzeBtnFunctionBody(body, btnName) : null;
+    const logic    = analyzeExtButtonLogic(content, `TitleForm_ext${btnIndex}Click`);
     buttons.push({
       name:         btnName || `타이틀바 추가버튼${btnIndex}`,
       functionName: `TitleForm_ext${btnIndex}Click`,
       index:        btnIndex,
       ...(popupUrl ? { popupUrl } : {}),
       ...(desc ? { description: desc } : {}),
+      ...(logic ? { logic } : {}),
     });
   }
   return buttons;
@@ -727,11 +995,13 @@ export function parseExtraButtons(content: string): ExtButtonInfo[] {
     seenControlId.add(funcBase);
     const body = extractFunctionBody(content, `${funcBase}_onclick`);
     const desc = analyzeBtnFunctionBody(body, funcBase);
+    const logic = analyzeExtButtonLogic(content, `${funcBase}_onclick`);
     buttons.push({
       name: funcBase,
       functionName: `${funcBase}_onclick`,
       index: buttons.length + 1,
       ...(desc ? { description: desc } : {}),
+      ...(logic ? { logic } : {}),
     });
   }
 
@@ -770,6 +1040,9 @@ export function parseExtraButtons(content: string): ExtButtonInfo[] {
     // SEARCHGROUP 내 버튼은 조회조건 영역이므로 사용방법 섹션에서 제외
     if (controlId.startsWith('SEARCHGROUP')) continue;
 
+    // visible = false 로 명시된 버튼은 화면에 노출되지 않으므로 사용방법에서 제외
+    if (new RegExp(`${varName}\\.visible\\s*=\\s*false\\b`).test(afterDecl)) continue;
+
     // label/classLabel 모두 없는 경우: 단순 제외 (내부 ID 노출 방지)
     const btnLabel = label || classLabel;
     if (!btnLabel) continue;
@@ -777,11 +1050,13 @@ export function parseExtraButtons(content: string): ExtButtonInfo[] {
     seenControlId.add(controlId);
     const body2 = extractFunctionBody(content, handlerFn);
     const desc2 = analyzeBtnFunctionBody(body2, btnLabel);
+    const logic2 = analyzeExtButtonLogic(content, handlerFn);
     buttons.push({
       name: btnLabel,
       functionName: handlerFn,
       index: buttons.length + 1,
       ...(desc2 ? { description: desc2 } : {}),
+      ...(logic2 ? { logic: logic2 } : {}),
     });
   }
 

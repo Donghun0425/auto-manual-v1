@@ -7,6 +7,7 @@
  */
 import { GridInfo, GridColumnInfo } from '@/types';
 import { normalizeLabel } from '@/lib/utils';
+import { isControlVisibleInLayout } from './visibility';
 
 /** 정규식 특수문자 이스케이프 */
 function escapeRegex(str: string): string {
@@ -311,6 +312,8 @@ export function parseGrids(content: string): GridInfo[] {
   while ((match = initPattern.exec(content)) !== null) {
     const gridId = match[1];
     if (!grids.has(gridId)) {
+      // visible = false 로 명시된 그리드는 화면에 노출되지 않으므로 제외
+      if (!isControlVisibleInLayout(content, gridId)) continue;
       grids.set(gridId, {
         gridId,
         title: titleMap.get(gridId) ?? '',
