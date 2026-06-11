@@ -1,7 +1,10 @@
 export type { 
   OverviewInfo,
   CrudInfo,
+  CrudOperationType,
+  CrudOperationLogic,
   ExtButtonInfo,
+  ExtButtonLogic,
   RequiredFieldInfo,
   ValidationInfo,
   GridColumnInfo,
@@ -31,9 +34,6 @@ export type {
   GenerationLog,
   GenerationLogInsert,
   OutputType,
-  ManualResultRow,
-  ManualResultInsert,
-  ManualResultUpdate,
   Database,
 } from "./database";
 

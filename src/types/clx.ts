@@ -23,6 +23,38 @@ export interface CrudInfo {
   hasDelete: boolean;
   extButtons: ExtButtonInfo[];
   title?: string;
+  /** CRUD 작업별 비즈니스 로직 (함수 라이프사이클 정적 분석 결과) */
+  operations?: CrudOperationLogic[];
+}
+
+/** CRUD 작업 종류 */
+export type CrudOperationType = "조회" | "신규" | "저장" | "삭제";
+
+/**
+ * CRUD 작업별 비즈니스 로직 정보
+ * Click(전처리) → Action(처리) → After(후처리) 함수 라이프사이클을 정적 분석한 결과
+ */
+export interface CrudOperationLogic {
+  /** 작업 종류 */
+  operation: CrudOperationType;
+  /** 사전조건/가드 (Click 전처리 검증 + 프레임워크 기본 가드) */
+  preconditions: string[];
+  /** 처리 단계 설명 (Action 시그널 기반: 서버 전송, 확인창, 팝업 등) */
+  processNotes: string[];
+  /** 수집된 검증 메시지 원문 (Click/Action 본문 alert) */
+  validations: string[];
+  /** 확인창(confirm) 호출 여부 */
+  hasConfirm: boolean;
+  /** 서버 트랜잭션 호출 여부 */
+  hasServiceCall: boolean;
+  /** 팝업 URL (있을 경우) */
+  popupUrl?: string;
+  /** 필수 입력값 (저장 전용, requiredText) */
+  requiredFields?: string[];
+  /** 중복 불가 키 조합 (저장 전용, unique1Text) */
+  uniqueKeys?: string[];
+  /** 완료 메시지 (After의 완료 안내, 분리 보관 — 프롬프트 미노출) */
+  completionMessage?: string;
 }
 
 /** 추가 버튼 정보 */
@@ -32,6 +64,31 @@ export interface ExtButtonInfo {
   index: number;
   description?: string;
   popupUrl?: string;
+  /** 버튼 클릭 본문(+1단계 위임 함수) 정적 분석 비즈니스 로직 */
+  logic?: ExtButtonLogic;
+}
+
+/**
+ * 추가 버튼 비즈니스 로직 정보
+ * 버튼 Click 핸들러 본문과 직접 호출하는 사용자 정의 함수(1단계 위임)를 정적 분석한 결과
+ */
+export interface ExtButtonLogic {
+  /** 사전조건/가드 (alert + return false 근접 → 진행 차단 조건) */
+  guards: string[];
+  /** 검증 메시지 (그 외 alert 원문) */
+  validations: string[];
+  /** 확인창 메시지 (confirm("...") 인자 문자열) */
+  confirmMessages: string[];
+  /** 처리 단계 설명 (시그널 기반: 팝업/서버전송/그리드변경/엑셀/인쇄/체크선택) */
+  processNotes: string[];
+  /** 확인창(confirm) 호출 여부 */
+  hasConfirm: boolean;
+  /** 서버 트랜잭션 호출 여부 */
+  hasServiceCall: boolean;
+  /** 팝업 URL (있을 경우) */
+  popupUrl?: string;
+  /** 완료 메시지 (완료 안내, 분리 보관 — 프롬프트 미노출) */
+  completionMessage?: string;
 }
 
 /** 필수값 정보 */
@@ -76,6 +133,10 @@ export interface ConditionControlInfo {
   description: string;
   controlType: string;
   inputType: "입력" | "표시" | "실행";
+  /** 파서가 정적 분석으로 추출한 동작/선택지 힌트 (AI 설명 프롬프트에 주입) */
+  logicHint?: string;
+  /** true면 사전(dictionary) 조회/저장 대상에서 제외 (화면별 토글 로직 등) */
+  skipDictionary?: boolean;
 }
 
 /** 조건그룹 정보 */
