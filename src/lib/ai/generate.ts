@@ -239,9 +239,13 @@ async function enrichConditionDescriptions(
     // 사전 우선 조회 — IN 절 1회 일괄 조회
     let toProcess = needDesc;
     if (useDictionary) {
-      const terms = needDesc.map((c) => c.labelText);
-      const dictMap = await findDictionaryByTerms(terms, contextType);
+      const lookupTargets = needDesc.filter((c) => !c.skipDictionary);
+      const terms = lookupTargets.map((c) => c.labelText);
+      const dictMap = terms.length > 0
+        ? await findDictionaryByTerms(terms, contextType)
+        : new Map<string, string>();
       toProcess = needDesc.filter((ctrl) => {
+        if (ctrl.skipDictionary) return true; // 사전 미사용 항목(화면별 토글 등)은 항상 AI 생성
         const found = dictMap.get(ctrl.labelText.trim());
         if (found) { ctrl.description = found; return false; }
         return true;
@@ -260,6 +264,7 @@ async function enrichConditionDescriptions(
     // AI 생성 결과를 단어사전에 저장 — context_type 별 독립 (사전 연동 모드일 때만)
     if (useDictionary) {
       for (const ctrl of toProcess) {
+        if (ctrl.skipDictionary) continue; // 화면별 토글 로직 등은 사전에 저장하지 않음
         if (ctrl.description) {
           upsertDictionary({ term: ctrl.labelText, context_type: contextType, category, description: ctrl.description, source: "ai" }).catch(() => {});
         }

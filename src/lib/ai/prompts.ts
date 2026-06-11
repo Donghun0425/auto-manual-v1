@@ -2,7 +2,7 @@
  * 프롬프트 엔지니어링 모듈
  * CLX 파싱 결과를 바탕으로 AI에 전달할 프롬프트를 구성
  */
-import type { AiMessage, ClxParseResult, GridColumnInfo, ConditionControlInfo } from "@/types";
+import type { AiMessage, ClxParseResult, GridColumnInfo, ConditionControlInfo, CrudInfo, ExtButtonInfo } from "@/types";
 
 /** 시스템 프롬프트 (공통) */
 const SYSTEM_PROMPT = `당신은 IT 비전문가(학생, 일반 학부모, 교직원 등)가 복잡한 시스템 용어를 쉽게 이해할 수 있도록 돕는 전문 UX 라이터이자 데이터 해설가입니다.
@@ -64,7 +64,10 @@ export function buildConditionControlPrompt(
 ): AiMessage[] {
   const screenContext = `화면명: ${parseResult.overview.programName}, 시스템: ${parseResult.overview.systemName}${udcHint}`;
   const controlList = controls
-    .map((c, i) => `${i + 1}. ${c.labelText} (ID: ${c.controlId}, 타입: ${c.controlType}, ${c.inputType})`)
+    .map((c, i) => {
+      const base = `${i + 1}. ${c.labelText} (ID: ${c.controlId}, 타입: ${c.controlType}, ${c.inputType})`;
+      return c.logicHint ? `${base}\n   └ 동작: ${c.logicHint}` : base;
+    })
     .join("\n");
 
   let systemPrompt: string;
@@ -109,6 +112,7 @@ export function buildConditionControlPrompt(
       `주의사항:\n` +
       `- 이 항목에 어떤 값을 넣으면 어떤 결과를 좁혀서 볼 수 있는지 설명하세요.\n` +
       `- DB나 개발 용어 없이 작성하세요.\n` +
+      `- 항목에 '동작:' 정보가 있으면 그 내용을 반영하여 설명하세요. 체크박스의 전환 동작이나 선택지(라디오/콤보)의 각 선택값이 어떤 의미인지 사용자 눈높이로 풀어주세요.\n` +
       `- 예시: "조회할 학년도를 선택합니다. 선택한 연도의 데이터만 표시됩니다." / "이름의 일부를 입력하여 학생을 검색합니다."\n` +
       `- 반드시 2줄 이내로 작성하세요.\n\n` +
       `정확히 아래 JSON 배열 형식으로 응답하세요. 다른 텍스트는 포함하지 마세요:\n` +
@@ -183,6 +187,68 @@ export function buildOverviewPrompt(parseResult: ClxParseResult): AiMessage[] {
 - 설명 텍스트만 출력하세요. 다른 텍스트는 포함하지 마세요.`,
     },
   ];
+}
+
+/**
+ * CRUD 작업별 비즈니스 로직을 프롬프트 컨텍스트 블록으로 변환한다.
+ * operations[]의 사전조건/처리/검증/필수입력값/중복불가를 작업 단위로 정리한다.
+ * @param crud  CRUD 정보 (operations 포함)
+ * @param scope 범위 라벨 (예: "상단 메뉴 타이틀바", "그리드 타이틀바 - 상세정보")
+ */
+function buildCrudLogicContext(crud: CrudInfo, scope: string): string | null {
+  if (!crud.operations || crud.operations.length === 0) return null;
+
+  const blocks: string[] = [];
+  for (const op of crud.operations) {
+    const lines: string[] = [`■ ${op.operation}`];
+
+    // 필수 입력값 / 중복 불가 (저장 전용)
+    if (op.requiredFields && op.requiredFields.length > 0) {
+      lines.push(`  · 필수 입력값: ${op.requiredFields.join(", ")}`);
+    }
+    if (op.uniqueKeys && op.uniqueKeys.length > 0) {
+      lines.push(`  · 중복 불가: ${op.uniqueKeys.join(" + ")} 조합은 중복될 수 없습니다.`);
+    }
+
+    // 사전조건/가드 — {MSG} 형식
+    for (const pre of op.preconditions) {
+      lines.push(`  · 사전조건: {MSG}${pre}{/MSG}`);
+    }
+
+    // 처리 단계 (시그널 기반 설명)
+    for (const note of op.processNotes) {
+      lines.push(`  · 처리: ${note}`);
+    }
+
+    // 추가 검증 (사전조건에 없는 Action 단계 검증) — {MSG} 형식
+    const extraValidations = op.validations.filter((v) => !op.preconditions.includes(v));
+    for (const v of extraValidations) {
+      lines.push(`  · 검증: {MSG}${v}{/MSG}`);
+    }
+
+    blocks.push(lines.join("\n"));
+  }
+
+  return `CRUD 비즈니스 로직(${scope}):\n${blocks.join("\n")}`;
+}
+
+/**
+ * 추가 버튼(ext) 정적 분석 비즈니스 로직을 들여쓰기 블록으로 변환한다.
+ * 사전조건/검증은 {MSG} 형식, 확인(confirm)·처리(시그널)는 일반 서술로 정리한다.
+ * @returns 들여쓰기된 멀티라인 블록(각 줄 4칸 들여쓰기), logic이 없으면 null
+ */
+function buildExtButtonLogicContext(btn: ExtButtonInfo): string | null {
+  const logic = btn.logic;
+  if (!logic) return null;
+
+  const lines: string[] = [];
+  for (const g of logic.guards) lines.push(`· 사전조건: {MSG}${g}{/MSG}`);
+  for (const v of logic.validations) lines.push(`· 검증: {MSG}${v}{/MSG}`);
+  for (const c of logic.confirmMessages) lines.push(`· 확인: {MSG}${c}{/MSG}`);
+  for (const n of logic.processNotes) lines.push(`· 처리: ${n}`);
+
+  if (lines.length === 0) return null;
+  return lines.map((l) => "    " + l).join("\n");
 }
 
 /**
@@ -264,8 +330,12 @@ export function buildUsagePrompt(parseResult: ClxParseResult, udcHint = ""): AiM
     .filter(Boolean)
     .join(", ");
 
-  // 추가 버튼 상세 헬퍼 (description 우선, 없으면 관련 검증 메시지)
-  const formatBtnDetail = (btn: { name: string; functionName: string; index: number; description?: string }) => {
+  // 추가 버튼 상세 헬퍼 (logic 우선 → description → 관련 검증 메시지)
+  const formatBtnDetail = (btn: ExtButtonInfo) => {
+    const logicBlock = buildExtButtonLogicContext(btn);
+    if (logicBlock) {
+      return `  - ${btn.name}:\n${logicBlock}`;
+    }
     if (btn.description) {
       return `  - ${btn.name}:\n${btn.description.split("\n").map(l => "    " + l).join("\n")}`;
     }
@@ -292,6 +362,18 @@ export function buildUsagePrompt(parseResult: ClxParseResult, udcHint = ""): AiM
   });
   const extButtonDetails = dedupedExtraButtons.map(formatBtnDetail).join("\n");
 
+  // 그리드 타이틀바 추가 버튼 상세 (logic/description 포함, '타이틀바명 - 버튼명' 라벨)
+  const titleBarExtButtonDetails = parseResult.usage.titleBars
+    .flatMap((tb) => {
+      const label = tb.title || "상세 정보";
+      return tb.extButtons.map((btn) => {
+        const detail = formatBtnDetail(btn);
+        // formatBtnDetail은 "  - {name}..." 형식 → 라벨에 타이틀바명 접두
+        return detail.replace(`  - ${btn.name}`, `  - ${label} - ${btn.name}`);
+      });
+    })
+    .join("\n");
+
   // 컨텍스트 조립
   const contextParts: string[] = [
     `화면명: ${parseResult.overview.programName}`,
@@ -300,6 +382,13 @@ export function buildUsagePrompt(parseResult: ClxParseResult, udcHint = ""): AiM
   if (titleBarFeatureLines.length > 0) {
     contextParts.push(`제공 기능(그리드 타이틀바):\n${titleBarFeatureLines.join("\n")}`);
   }
+  // CRUD 비즈니스 로직 (사전조건/처리/검증/필수입력값/중복불가)
+  const menuCrudLogic = buildCrudLogicContext(menu, "상단 메뉴 타이틀바");
+  if (menuCrudLogic) contextParts.push(menuCrudLogic);
+  for (const tb of parseResult.usage.titleBars) {
+    const tbLogic = buildCrudLogicContext(tb, `그리드 타이틀바 - ${tb.title || "상세 정보"}`);
+    if (tbLogic) contextParts.push(tbLogic);
+  }
   if (searchConditionLabels) contextParts.push(`조회조건 항목: ${searchConditionLabels}`);
   if (conditionLabels) contextParts.push(`처리조건 항목: ${conditionLabels}`);
   if (gridLines) contextParts.push(`결과 목록(그리드):\n${gridLines}`);
@@ -307,6 +396,7 @@ export function buildUsagePrompt(parseResult: ClxParseResult, udcHint = ""): AiM
   if (validationMessages) contextParts.push(`검증/주의사항:\n${validationMessages}`);
   if (popupInfo) contextParts.push(`팝업 화면: ${popupInfo}`);
   if (extButtonDetails) contextParts.push(`추가 버튼 상세:\n${extButtonDetails}`);
+  if (titleBarExtButtonDetails) contextParts.push(`그리드 타이틀바 추가 버튼 상세:\n${titleBarExtButtonDetails}`);
 
   return [
     {
@@ -324,8 +414,10 @@ Step2. 설명
 - 상단 메뉴 타이틀바의 조회: 조회조건 입력 → 조회 버튼 클릭 → 결과 목록 확인 흐름으로 작성
 - 상단 메뉴 타이틀바의 신규/저장: 데이터 입력 → 필수값 확인 → 저장 실행 → 완료 확인 흐름으로 작성
 - 상단 메뉴 타이틀바의 삭제: 항목 선택 → 삭제 실행 → 확인 메시지 처리 흐름으로 작성
+- 'CRUD 비즈니스 로직' 블록이 제공된 기능(조회/신규/저장/삭제)은 해당 블록의 사전조건·처리·검증·필수 입력값·중복 불가 내용을 반드시 Step에 반영하세요. 사전조건/검증 메시지는 {MSG}...{/MSG} 형식 그대로 노출하고, 필수 입력값과 중복 불가 조건은 입력/저장 Step에서 안내하세요. 블록이 없는 기능은 위의 일반 흐름을 따르세요
 - 그리드 타이틀바 기능은 소제목을 반드시 '{B}타이틀바명 - 기능명{/B}' 형식으로 작성하세요. 단, 신규/저장/삭제는 반드시 '제공 기능(그리드 타이틀바)' 목록에 해당 항목이 명시된 경우에만 작성하고, 목록에 없는 기능은 절대 추가하지 마세요
 - 추가 버튼: 사전 선택 조건 → 버튼 클릭 → 실행 결과 확인 흐름으로 작성하고, 관련 검증/주의사항이 있으면 Step에 반영하세요
+- '추가 버튼 상세' 또는 '그리드 타이틀바 추가 버튼 상세'에 사전조건/검증/확인/처리 항목이 제공된 경우: 사전조건·검증·확인 메시지는 {MSG}...{/MSG} 형식 그대로 해당 Step에 노출하고, 처리 항목은 버튼 클릭 후의 동작 흐름으로 서술하세요. 확인(confirm) 메시지는 "버튼 클릭 시 다음 확인 메시지가 표시되며, 확인을 누르면 진행됩니다.\n{MSG}...{/MSG}" 형식으로 작성하세요
 - '추가 버튼 상세'에 나열된 모든 버튼은 반드시 각자 {B}버튼명{/B} 섹션을 가져야 합니다. 누락 없이 모두 포함하세요
 - 화면에 제공된 조회조건 항목명, 그리드 컬럼명을 Step 설명에 직접 활용하세요
 - 검증/주의사항에 메시지가 있는 경우, 해당 Step에서는 먼저 사용자가 취해야 할 행동을 긍정문(~해야 합니다 / ~합니다)으로 설명하고, 그 다음에 조건 불충족 시 출력되는 메시지를 안내하세요
