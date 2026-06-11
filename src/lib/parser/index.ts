@@ -12,6 +12,7 @@ import { parsePopups } from "./popupParser";
 import { parseEmbApps } from "./embAppParser";
 import { parseInfoGroups } from "./infoGroupParser";
 import { UDC_REGISTRY } from "./udcRegistry";
+import { isControlVisibleInLayout } from "./visibility";
 
 /**
  * UcoBtchList 컨트롤의 타이틀을 추출한다.
@@ -56,19 +57,29 @@ const UCO_BTCH_LIST_GRID_COLUMNS: GridInfo["columns"] = [
  * new udc.xxx.YYY("...") 패턴을 찾아 레지스트리에서 설명을 매칭.
  */
 function parseUsedUdcs(content: string): UsedUdcInfo[] {
-  const re = /new\s+udc\.(\w+)\.(\w+)\s*\(/g;
-  const seen = new Set<string>();
-  const result: UsedUdcInfo[] = [];
+  // controlId 까지 캡처하여 visible 속성을 판별한다.
+  const re = /new\s+udc\.(\w+)\.(\w+)\s*\(\s*"([^"]+)"/g;
+  // shortName 별로 표시 대상 인스턴스(visible=true)가 하나라도 있는지 추적
+  const collected = new Map<string, { pkg: string; visible: boolean }>();
   let m: RegExpExecArray | null;
   while ((m = re.exec(content)) !== null) {
+    const pkg = m[1];
     const shortName = m[2];
-    if (seen.has(shortName)) continue;
-    seen.add(shortName);
-    const qualifiedName = `udc.${m[1]}.${shortName}`;
+    const controlId = m[3];
+    const visible = isControlVisibleInLayout(content, controlId);
+    const prev = collected.get(shortName);
+    if (!prev) collected.set(shortName, { pkg, visible });
+    else if (visible) prev.visible = true;
+  }
+
+  const result: UsedUdcInfo[] = [];
+  for (const [shortName, { pkg, visible }] of collected) {
+    // 모든 인스턴스가 visible=false 인 UDC 는 화면에 노출되지 않으므로 제외
+    if (!visible) continue;
     const info = UDC_REGISTRY[shortName];
     result.push({
       shortName,
-      qualifiedName,
+      qualifiedName: `udc.${pkg}.${shortName}`,
       description: info?.description ?? "",
     });
   }
@@ -88,6 +99,8 @@ export function analyzeFile(filePath: string, content: string): ClxParseResult {
   while ((bm = ucoBtchRe.exec(content)) !== null) {
     const controlId = bm[1];
     if (grids.some(g => g.gridId === controlId)) continue;
+    // visible = false 로 명시된 배치 리스트는 화면에 노출되지 않으므로 제외
+    if (!isControlVisibleInLayout(content, controlId)) continue;
     const gridTitle = extractUcoBtchListTitle(content, controlId);
     grids.push({
       gridId: controlId,
