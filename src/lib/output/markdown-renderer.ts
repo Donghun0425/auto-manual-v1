@@ -126,7 +126,9 @@ function renderUsage(data: ClxParseResult, customTitle?: string): string {
         const inner = line.replace(/^\{B\}/, "").replace(/\{\/B\}$/, "");
         lines.push(`\n**${inner}**\n`);
       } else if (/^Step\d+\./i.test(line)) {
-        lines.push(`- ${line}`);
+        // 인라인 {B}...{/B} 태그를 **...** 로 변환
+        const formatted = line.replace(/\{B\}([^{]+?)\{\/B\}/g, "**$1**");
+        lines.push(`- ${formatted}`);
       } else if (/^\{MSG\}.+\{\/MSG\}$/.test(line)) {
         const msgInner = line.replace(/^\{MSG\}/, "").replace(/\{\/MSG\}$/, "").replace(/^"|"$/g, "").trim();
         lines.push(`> 💬 **"${msgInner}"**`);
@@ -370,11 +372,14 @@ function renderNotes(data: ClxParseResult, customTitle?: string): string {
     }
   }
 
-  // ── 고정 안내사항 (항상 포함) ──
+  // ── 고정 안내사항 ──
   parts.push("### 🔧 시스템 오류 문의\n");
   parts.push("- 시스템 오류 또는 사용 중 문제가 발생한 경우, 정보화팀(내선: 0000)으로 문의해주세요.\n");
-  parts.push("### 💾 데이터 저장 주의\n");
-  parts.push("- 입력한 데이터는 '저장' 버튼을 클릭하기 전까지 저장되지 않습니다. 화면을 벗어나기 전 반드시 저장 여부를 확인하세요.\n");
+  // 데이터 저장 주의: 분석 대상 파일에 저장 기능이 존재할 경우에만 표시
+  if (data.usage.menuTitleBar.hasSave || data.usage.titleBars.some(tb => tb.hasSave)) {
+    parts.push("### 💾 데이터 저장 주의\n");
+    parts.push("- 입력한 데이터는 '저장' 버튼을 클릭하기 전까지 저장되지 않습니다. 화면을 벗어나기 전 반드시 저장 여부를 확인하세요.\n");
+  }
   parts.push("### ⏱ 세션 만료 안내\n");
   parts.push("- 일정 시간 동안 사용하지 않으면 자동으로 로그아웃됩니다. 장시간 작업 시 중간 저장을 권장합니다.\n");
 

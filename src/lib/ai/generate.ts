@@ -390,6 +390,12 @@ async function enrichUsageText(
   let text = extractContent(response);
 
   if (text) {
+    // 후처리 0: AI가 생성한 Markdown 서식 제거 (백틱, **굵게**)
+    // {B}...{/B} 태그 밖의 Step 설명에서 백틱 제거: `버튼명` → 버튼명
+    text = text.replace(/`([^`\n]+?)`/g, "$1");
+    // **굵게** 패턴은 렌더러가 처리하므로 여기서는 {B}{/B}로 변환하여 일관성 유지
+    text = text.replace(/\*\*([^*\n]+?)\*\*/g, "{B}$1{/B}");
+
     // 후처리 1: 소제목에 남은 '기능' 단어 제거
     text = text.replace(/\{B\}([^{]+?)\s+기능\s*\{\/B\}/g, "{B}$1{/B}");
 

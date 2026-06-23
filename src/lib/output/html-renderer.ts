@@ -132,16 +132,16 @@ function renderUsage(data: ClxParseResult, customTitle?: string): string {
         const inner = line.replace(/^\{B\}/, "").replace(/\{\/B\}$/, "");
         lines.push(`<span class="bold-tag">${escapeHtml(inner)}</span>`);
       } else if (/^Step\d+\./i.test(line)) {
-        lines.push(`<p class="step">${escapeHtml(line)}</p>`);
+        lines.push(`<p class="step">${formatInline(line)}</p>`);
       } else if (/^\{MSG\}.+\{\/MSG\}$/.test(line)) {
         const msgInner = line.replace(/^\{MSG\}/, "").replace(/\{\/MSG\}$/, "").replace(/^"|"$/g, "").trim();
         lines.push(`<p class="msg-box">💬 "${escapeHtml(msgInner)}"</p>`);
       } else if (/^[*•※⚠]|^주의|^\[주의/.test(line)) {
-        lines.push(`<p class="step note-warn">${escapeHtml(line)}</p>`);
+        lines.push(`<p class="step note-warn">${formatInline(line)}</p>`);
       } else if (/^📌|^필수/.test(line)) {
-        lines.push(`<p class="step note-req">${escapeHtml(line)}</p>`);
+        lines.push(`<p class="step note-req">${formatInline(line)}</p>`);
       } else {
-        lines.push(`<p class="step">${escapeHtml(line)}</p>`);
+        lines.push(`<p class="step">${formatInline(line)}</p>`);
       }
     }
 
@@ -496,11 +496,14 @@ function renderNotes(data: ClxParseResult, customTitle?: string): string {
     }
   }
 
-  // ── 고정 안내사항 (항상 포함) ──
+  // ── 고정 안내사항 ──
   lines.push('<span class="bold-tag">🔧 시스템 오류 문의</span>');
   lines.push('<p class="step note-warn">시스템 오류 또는 사용 중 문제가 발생한 경우, 정보화팀(내선: 0000)으로 문의해주세요.</p>');
-  lines.push('<span class="bold-tag">💾 데이터 저장 주의</span>');
-  lines.push('<p class="step note-warn">입력한 데이터는 \'저장\' 버튼을 클릭하기 전까지 저장되지 않습니다. 화면을 벗어나기 전 반드시 저장 여부를 확인하세요.</p>');
+  // 데이터 저장 주의: 분석 대상 파일에 저장 기능이 존재할 경우에만 표시
+  if (data.usage.menuTitleBar.hasSave || data.usage.titleBars.some(tb => tb.hasSave)) {
+    lines.push('<span class="bold-tag">💾 데이터 저장 주의</span>');
+    lines.push('<p class="step note-warn">입력한 데이터는 \'저장\' 버튼을 클릭하기 전까지 저장되지 않습니다. 화면을 벗어나기 전 반드시 저장 여부를 확인하세요.</p>');
+  }
   lines.push('<span class="bold-tag">⏱ 세션 만료 안내</span>');
   lines.push('<p class="step note-warn">일정 시간 동안 사용하지 않으면 자동으로 로그아웃됩니다. 장시간 작업 시 중간 저장을 권장합니다.</p>');
 
@@ -524,6 +527,16 @@ function escapeHtml(str: string): string {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
+}
+
+/**
+ * 단계 문장 내 인라인 강조 처리.
+ * AI가 출력한 Markdown 볼드(**단어**)를 {B} 태그로 변환한 뒤 <strong>으로 렌더링한다.
+ */
+function formatInline(str: string): string {
+  return escapeHtml(str)
+    .replace(/\*\*([^*\n]+?)\*\*/g, "{B}$1{/B}")
+    .replace(/\{B\}([\s\S]+?)\{\/B\}/g, "<strong>$1</strong>");
 }
 
 const CSS_STYLES = `
