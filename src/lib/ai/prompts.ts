@@ -15,6 +15,32 @@ const SYSTEM_PROMPT = `당신은 IT 비전문가(학생, 일반 학부모, 교�
 - 구체성: '누구를 위한 것인지', '어떤 목적으로 쓰이는지'가 명확하게 드러나야 합니다.
 - "~합니다" 체 사용`;
 
+function hasWorkHints(parseResult: ClxParseResult): boolean {
+  const hints = parseResult.workHints;
+  return !!hints && (
+    hints.flow.length > 0 ||
+    hints.required.length > 0 ||
+    hints.caution.length > 0
+  );
+}
+
+function formatWorkHints(parseResult: ClxParseResult): string {
+  const hints = parseResult.workHints;
+  if (!hints) return "";
+
+  const parts: string[] = [];
+  if (hints.flow.length > 0) {
+    parts.push(`[업무흐름]\n${hints.flow.map((v) => `- ${v}`).join("\n")}`);
+  }
+  if (hints.required.length > 0) {
+    parts.push(`[필수사항]\n${hints.required.map((v) => `- ${v}`).join("\n")}`);
+  }
+  if (hints.caution.length > 0) {
+    parts.push(`[주의사항]\n${hints.caution.map((v) => `- ${v}`).join("\n")}`);
+  }
+  return parts.join("\n");
+}
+
 /**
  * 그리드 컬럼 설명 생성 프롬프트
  */
@@ -166,6 +192,9 @@ export function buildOverviewPrompt(parseResult: ClxParseResult): AiMessage[] {
 
   const gridCount = parseResult.items.grids.length;
   const condCount = parseResult.items.conditionGroups.length;
+  const workHintContext = hasWorkHints(parseResult)
+    ? `\n작성자가 제공한 업무 힌트:\n${formatWorkHints(parseResult)}\n`
+    : "";
 
   return [
     { role: "system", content: SYSTEM_PROMPT },
@@ -179,9 +208,11 @@ export function buildOverviewPrompt(parseResult: ClxParseResult): AiMessage[] {
 - 그리드 수: ${gridCount}개
 - 조건그룹 수: ${condCount}개
 - 탭 페이지: ${parseResult.tabPages.length}개
+${workHintContext}
 
 작성 규칙:
 - 이 화면의 목적, 주요 기능, 사용 대상을 포함하여 설명하세요.
+- 작성자가 제공한 업무 힌트가 있으면 이 화면이 전체 업무 흐름에서 어느 단계인지 자연스럽게 반영하세요.
 - 3줄 이내로 작성하되, 각 줄은 줄바꿈(\n)으로 구분하세요.
 - 개발 용어(DB, 컬럼, 플래그 등) 없이 일반 사용자 눈높이로 작성하세요.
 - 설명 텍스트만 출력하세요. 다른 텍스트는 포함하지 마세요.`,
@@ -397,6 +428,9 @@ export function buildUsagePrompt(parseResult: ClxParseResult, udcHint = ""): AiM
   if (popupInfo) contextParts.push(`팝업 화면: ${popupInfo}`);
   if (extButtonDetails) contextParts.push(`추가 버튼 상세:\n${extButtonDetails}`);
   if (titleBarExtButtonDetails) contextParts.push(`그리드 타이틀바 추가 버튼 상세:\n${titleBarExtButtonDetails}`);
+  if (hasWorkHints(parseResult)) {
+    contextParts.push(`작성자 업무 힌트:\n${formatWorkHints(parseResult)}`);
+  }
 
   return [
     {
@@ -411,6 +445,9 @@ Step2. 설명
 작성 규칙:
 - {B}...{/B} 안의 기능 제목에는 '기능'이라는 단어를 포함하지 마세요. 예: {B}조회{/B}, {B}저장{/B}
 - 각 기능당 Step은 3~5개로 작성하세요 (기능 복잡도에 따라 조절)
+- 작성자 업무 힌트의 [업무흐름]은 전체 업무 맥락과 Step 순서를 정할 때 우선 참고하세요. 단, 화면에 없는 버튼이나 기능은 새로 만들지 마세요
+- 작성자 업무 힌트의 [필수사항]은 조회/신규/저장/처리 Step의 선행조건 또는 확인사항으로 자연스럽게 반영하세요
+- 작성자 업무 힌트의 [주의사항]은 해당 기능 Step에서 필요한 경우 간단히 안내하되, 별도 기능으로 만들지 마세요
 - 상단 메뉴 타이틀바의 조회: 조회조건 입력 → 조회 버튼 클릭 → 결과 목록 확인 흐름으로 작성
 - 상단 메뉴 타이틀바의 신규/저장: 데이터 입력 → 필수값 확인 → 저장 실행 → 완료 확인 흐름으로 작성
 - 상단 메뉴 타이틀바의 삭제: 항목 선택 → 삭제 실행 → 확인 메시지 처리 흐름으로 작성

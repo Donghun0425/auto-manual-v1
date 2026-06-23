@@ -85,6 +85,46 @@ function conditionGroupLabel(groupType: string): string {
   }
 }
 
+function splitWorkflow(flowLines: string[]): string[] {
+  return flowLines
+    .flatMap((line) => line.split(/\s*(?:->|→|➜|⇒)\s*/))
+    .map((step) => step.trim())
+    .filter(Boolean);
+}
+
+function normalizeStep(value: string): string {
+  return value.replace(/\s+/g, "").replace(/[()[\]{}<>]/g, "").toLowerCase();
+}
+
+function currentScreenNames(data: ClxParseResult): string[] {
+  const names = [
+    data.overview.appTitle,
+    data.overview.programName,
+    data.overview.programName.split(">").pop(),
+    data.filePath.split(/[\\/]/).pop()?.replace(/\.clx\.js$/i, ""),
+  ];
+  return names.filter((name): name is string => !!name && !!name.trim()).map(normalizeStep);
+}
+
+function isCurrentWorkflowStep(step: string, currentNames: string[]): boolean {
+  const normalizedStep = normalizeStep(step);
+  return currentNames.some((name) =>
+    normalizedStep === name ||
+    (name.length >= 3 && normalizedStep.includes(name)) ||
+    (normalizedStep.length >= 3 && name.includes(normalizedStep))
+  );
+}
+
+function renderWorkflowText(data: ClxParseResult): string {
+  const steps = splitWorkflow(data.workHints?.flow ?? []);
+  if (steps.length === 0) return "";
+
+  const names = currentScreenNames(data);
+  return steps
+    .map((step) => isCurrentWorkflowStep(step, names) ? `**${step} (현재 화면)**` : step)
+    .join(" → ");
+}
+
 function renderOverview(data: ClxParseResult, customTitle?: string): string {
   const o = data.overview;
   if (!o.programName && !o.systemName) return "";
@@ -93,6 +133,10 @@ function renderOverview(data: ClxParseResult, customTitle?: string): string {
   const lines: string[] = [`## ${title}\n`];
 
   if (o.description) lines.push(`> ${o.description.split("\n").join("\n> ")}\n`);
+  const workflow = renderWorkflowText(data);
+  if (workflow) {
+    lines.push(`**업무흐름:** ${workflow}\n`);
+  }
 
   const meta: string[] = [];
   if (o.systemName) meta.push(`**시스템:** ${o.systemName}`);
@@ -321,6 +365,8 @@ function renderTabs(data: ClxParseResult, customTitle?: string): string {
 
 function renderNotes(data: ClxParseResult, customTitle?: string): string {
   const requiredFields = data.notes.requiredFields;
+  const workRequired = data.workHints?.required ?? [];
+  const workCaution = data.workHints?.caution ?? [];
   // 조회/저장/삭제 전용은 사용방법에서 이미 표시 → 제외
   const COMPLETION_RE = /^(?:처리|저장|삭제|등록|수정|복사|생성|변경|갱신|적용|실행)[^\n]*?(?:되었습니다|했습니다|하였습니다)[.!]?\s*$/;
   const otherVals = data.notes.validations
@@ -334,6 +380,22 @@ function renderNotes(data: ClxParseResult, customTitle?: string): string {
     parts.push("### 📌 필수 입력항목\n");
     const allTexts = requiredFields.flatMap(r => r.texts);
     parts.push(allTexts.join(", ") + "\n");
+  }
+
+  if (workRequired.length > 0) {
+    parts.push("### 📌 업무 필수사항\n");
+    for (const item of workRequired) {
+      parts.push(`- ${item}`);
+    }
+    parts.push("");
+  }
+
+  if (workCaution.length > 0) {
+    parts.push("### ⚠ 업무 주의사항\n");
+    for (const item of workCaution) {
+      parts.push(`- ${item}`);
+    }
+    parts.push("");
   }
 
   if (otherVals.length > 0) {

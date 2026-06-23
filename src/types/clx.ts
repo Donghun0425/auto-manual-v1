@@ -15,6 +15,16 @@ export interface OverviewInfo {
   createDate: string;
 }
 
+/** 파일 상단 주석으로 작성한 업무 힌트 */
+export interface WorkHintInfo {
+  /** [업무흐름] */
+  flow: string[];
+  /** [필수사항] */
+  required: string[];
+  /** [주의사항] */
+  caution: string[];
+}
+
 /** CRUD 기능 정보 */
 export interface CrudInfo {
   hasInquiry: boolean;
@@ -174,6 +184,8 @@ export interface TabPageInfo {
 export interface ClxParseResult {
   filePath: string;
   overview: OverviewInfo;
+  /** 파일 상단 주석의 [업무흐름]/[필수사항]/[주의사항] 힌트 */
+  workHints?: WorkHintInfo;
   usage: {
     menuTitleBar: CrudInfo;
     titleBars: CrudInfo[];

@@ -1,5 +1,6 @@
 export type { 
   OverviewInfo,
+  WorkHintInfo,
   CrudInfo,
   CrudOperationType,
   CrudOperationLogic,

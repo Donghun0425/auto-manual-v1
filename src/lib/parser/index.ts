@@ -3,8 +3,8 @@
  * - 각 하위 파서를 통합하여 .clx.js 파일의 전체 분석 결과를 반환
  */
 import type { ClxParseResult, ExtButtonInfo, GridInfo, UsedUdcInfo } from "@/types";
-import { parseHeader } from "./headerParser";
-import { parseMenuTitleBarCrud, parseTitleBarCrud, parseExtraButtons, extractPopupUrl } from "./crudParser";
+import { parseHeader, parseWorkHints } from "./headerParser";
+import { parseMenuTitleBarCrud, parseTitleBarCrud, parseExtraButtons } from "./crudParser";
 import { parseRequiredFields, parseValidations } from "./validationParser";
 import { parseGrids } from "./gridParser";
 import { parseConditionGroups } from "./conditionGroupParser";
@@ -92,6 +92,7 @@ function parseUsedUdcs(content: string): UsedUdcInfo[] {
 export function analyzeFile(filePath: string, content: string): ClxParseResult {
   const conditionGroups = parseConditionGroups(content);
   const grids = parseGrids(content);
+  const workHints = parseWorkHints(content);
 
   // UcoBtchList가 포함된 경우 내장 고정 그리드를 grids 목록에 추가
   const ucoBtchRe = /new\s+udc\.univ\.UcoBtchList\("([^"]+)"\)/g;
@@ -138,6 +139,7 @@ export function analyzeFile(filePath: string, content: string): ClxParseResult {
   return {
     filePath,
     overview: parseHeader(content),
+    ...(workHints ? { workHints } : {}),
     usage: {
       menuTitleBar,
       titleBars,

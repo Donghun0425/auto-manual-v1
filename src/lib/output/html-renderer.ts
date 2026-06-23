@@ -86,6 +86,10 @@ function renderOverview(data: ClxParseResult, customTitle?: string): string {
   const descRow = o.description
     ? `<div class="info-row full-width"><span class="info-label">설명</span><span class="info-value" style="white-space:pre-line">${escapeHtml(o.description)}</span></div>`
     : "";
+  const workflow = renderWorkflow(data);
+  const flowRow = workflow
+    ? `<div class="info-row full-width workflow-row"><span class="info-label">업무흐름</span><span class="info-value">${workflow}</span></div>`
+    : "";
 
   return `<h2>${escapeHtml(title)}</h2>
 <div class="section">
@@ -94,8 +98,52 @@ function renderOverview(data: ClxParseResult, customTitle?: string): string {
   <div class="info-row"><span class="info-label">부시스템</span><span class="info-value">${escapeHtml(o.subSystem)}</span></div>
   <div class="info-row"><span class="info-label">프로그램</span><span class="info-value">${escapeHtml(o.programName)}</span></div>
   ${descRow}
+  ${flowRow}
 </div>
 </div>`;
+}
+
+function splitWorkflow(flowLines: string[]): string[] {
+  return flowLines
+    .flatMap((line) => line.split(/\s*(?:->|→|➜|⇒)\s*/))
+    .map((step) => step.trim())
+    .filter(Boolean);
+}
+
+function normalizeStep(value: string): string {
+  return value.replace(/\s+/g, "").replace(/[()[\]{}<>]/g, "").toLowerCase();
+}
+
+function currentScreenNames(data: ClxParseResult): string[] {
+  const names = [
+    data.overview.appTitle,
+    data.overview.programName,
+    data.overview.programName.split(">").pop(),
+    data.filePath.split(/[\\/]/).pop()?.replace(/\.clx\.js$/i, ""),
+  ];
+  return names.filter((name): name is string => !!name && !!name.trim()).map(normalizeStep);
+}
+
+function isCurrentWorkflowStep(step: string, currentNames: string[]): boolean {
+  const normalizedStep = normalizeStep(step);
+  return currentNames.some((name) =>
+    normalizedStep === name ||
+    (name.length >= 3 && normalizedStep.includes(name)) ||
+    (normalizedStep.length >= 3 && name.includes(normalizedStep))
+  );
+}
+
+function renderWorkflow(data: ClxParseResult): string {
+  const steps = splitWorkflow(data.workHints?.flow ?? []);
+  if (steps.length === 0) return "";
+
+  const currentNames = currentScreenNames(data);
+  return `<div class="workflow-pills">${steps.map((step, index) => {
+    const isCurrent = isCurrentWorkflowStep(step, currentNames);
+    const className = isCurrent ? "workflow-pill current" : "workflow-pill";
+    const suffix = isCurrent ? '<span class="workflow-current-label">현재</span>' : "";
+    return `<span class="${className}">${escapeHtml(step)}${suffix}</span>${index < steps.length - 1 ? '<span class="workflow-arrow">→</span>' : ""}`;
+  }).join("")}</div>`;
 }
 
 /** 기타 버튼 설명을 <p class="step"> 배열로 반환 (다단계 지원) */
@@ -443,6 +491,8 @@ function renderTabs(data: ClxParseResult, customTitle?: string): string {
 
 function renderNotes(data: ClxParseResult, customTitle?: string): string {
   const requiredFields = data.notes.requiredFields;
+  const workRequired = data.workHints?.required ?? [];
+  const workCaution = data.workHints?.caution ?? [];
   // 조회/저장/삭제 전용은 사용방법 섹션에서 이미 표시 → 참고사항에서 제외
   const COMPLETION_RE = /^(?:처리|저장|삭제|등록|수정|복사|생성|변경|갱신|적용|실행)[^\n]*?(?:되었습니다|했습니다|하였습니다)[.!]?\s*$/;
   const otherVals = data.notes.validations
@@ -457,6 +507,20 @@ function renderNotes(data: ClxParseResult, customTitle?: string): string {
     lines.push('<span class="bold-tag">📌 필수 입력항목</span>');
     const allTexts = requiredFields.flatMap(r => r.texts);
     lines.push(`<p class="step note-req">${allTexts.map(escapeHtml).join(", ")}</p>`);
+  }
+
+  if (workRequired.length > 0) {
+    lines.push('<span class="bold-tag">📌 업무 필수사항</span>');
+    for (const item of workRequired) {
+      lines.push(`<p class="step note-req">• ${escapeHtml(item)}</p>`);
+    }
+  }
+
+  if (workCaution.length > 0) {
+    lines.push('<span class="bold-tag">⚠ 업무 주의사항</span>');
+    for (const item of workCaution) {
+      lines.push(`<p class="step note-warn">• ${escapeHtml(item)}</p>`);
+    }
   }
 
   // 2. 기능별 주의사항
@@ -645,6 +709,52 @@ const CSS_STYLES = `
   .info-value {
     color: #1e293b;
     font-weight: 500;
+  }
+  .workflow-row {
+    align-items: flex-start;
+  }
+  .workflow-pills {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    padding-top: 1px;
+  }
+  .workflow-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-height: 26px;
+    padding: 4px 12px;
+    border-radius: 999px;
+    border: 1px solid #cbd5e1;
+    background: #f8fafc;
+    color: #334155;
+    font-size: 11.5px;
+    font-weight: 650;
+    line-height: 1.25;
+  }
+  .workflow-pill.current {
+    border-color: #2563eb;
+    background: #dbeafe;
+    color: #1d4ed8;
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.08);
+  }
+  .workflow-current-label {
+    display: inline-flex;
+    align-items: center;
+    height: 16px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: #2563eb;
+    color: #ffffff;
+    font-size: 9.5px;
+    font-weight: 700;
+  }
+  .workflow-arrow {
+    color: #94a3b8;
+    font-size: 13px;
+    font-weight: 700;
   }
   /* 단계 설명 */
   .step {
