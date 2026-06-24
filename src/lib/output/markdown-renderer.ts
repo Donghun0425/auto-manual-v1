@@ -209,11 +209,22 @@ function renderUsage(data: ClxParseResult, customTitle?: string): string {
   // AI 없을 때 기본 테이블 형식
   const mtb = data.usage.menuTitleBar;
   const rows: string[] = [];
+  const searchLabels = data.items.conditionGroups
+    .filter((g) => g.groupType === "조회조건")
+    .flatMap((g) => g.controls.map((c) => c.labelText))
+    .filter(Boolean)
+    .slice(0, 5)
+    .join(", ");
+  const gridNames = data.items.grids
+    .filter((g) => g.title)
+    .map((g) => g.title)
+    .slice(0, 3)
+    .join(", ");
 
-  if (mtb.hasInquiry) rows.push("| 조회 | 조회 버튼을 클릭하여 데이터를 검색합니다. |");
-  if (mtb.hasNew) rows.push("| 신규 | 신규 버튼을 클릭하여 새 데이터를 입력합니다. |");
-  if (mtb.hasSave) rows.push("| 저장 | 저장 버튼을 클릭하여 변경사항을 저장합니다. |");
-  if (mtb.hasDelete) rows.push("| 삭제 | 삭제 버튼을 클릭하여 선택된 데이터를 삭제합니다. |");
+  if (mtb.hasInquiry) rows.push(`| 조회 | ${searchLabels || "조회조건"}을 기준으로 업무 대상을 검색하고, ${gridNames || "결과 목록"}에서 필요한 자료를 확인합니다. |`);
+  if (mtb.hasNew) rows.push("| 신규 | 새 업무 자료를 등록해야 할 때 입력 영역을 초기화하고, 필수 정보 입력 후 저장으로 이어갑니다. |");
+  if (mtb.hasSave) rows.push(`| 저장 | 신규/수정된 내용을 필수값과 중복 조건 기준으로 확인한 뒤 저장하고, ${gridNames || "결과 목록"}에 반영되었는지 확인합니다. |`);
+  if (mtb.hasDelete) rows.push(`| 삭제 | ${gridNames || "목록"}에서 삭제 대상을 선택하고, 삭제 제한 조건을 확인한 뒤 처리 결과를 확인합니다. |`);
 
   for (const btn of mtb.extButtons) {
     rows.push(`| ${btn.name} | ${btn.description || `'${btn.name}' 버튼을 클릭합니다.`} |`);
@@ -221,8 +232,8 @@ function renderUsage(data: ClxParseResult, customTitle?: string): string {
 
   for (const tb of data.usage.titleBars) {
     const tbName = tb.title || "서브 타이틀바";
-    if (tb.hasSave) rows.push(`| ${tbName} 저장 | ${tbName}의 저장 버튼을 클릭합니다. |`);
-    if (tb.hasDelete) rows.push(`| ${tbName} 삭제 | ${tbName}의 삭제 버튼을 클릭합니다. |`);
+    if (tb.hasSave) rows.push(`| ${tbName} 저장 | ${tbName}에서 신규/수정된 행의 필수값과 중복 여부를 확인한 뒤 저장하고, 목록에 변경 내용이 반영되었는지 확인합니다. |`);
+    if (tb.hasDelete) rows.push(`| ${tbName} 삭제 | ${tbName}에서 삭제할 행을 선택하고 삭제 제한 조건을 확인한 뒤 처리하며, 목록에서 해당 행이 제외되었는지 확인합니다. |`);
     for (const btn of tb.extButtons) {
       rows.push(`| ${tbName} ${btn.name} | ${btn.description || `'${btn.name}' 버튼을 클릭합니다.`} |`);
     }

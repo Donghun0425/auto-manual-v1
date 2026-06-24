@@ -223,15 +223,17 @@ function renderUsage(data: ClxParseResult, customTitle?: string): string {
         && !aiSectionTitles.has(`${tbLabel} 저장`)
         && !aiSectionTitles.has(`${tbLabel} - 저장`)) {
         lines.push(`<span class="bold-tag">${escapeHtml(tbLabel)} - 저장</span>`);
-        lines.push('<p class="step">Step1. 수정하고자 하는 자료를 입력한다.</p>');
-        lines.push(`<p class="step">Step2. '${escapeHtml(tbLabel)}' 타이틀바의 '저장' 버튼을 클릭한다.</p>`);
+        lines.push(`<p class="step">Step1. ${escapeHtml(tbLabel)}에서 신규 입력 또는 수정된 행을 확인한다.</p>`);
+        lines.push('<p class="step">Step2. 저장 전에 필수 항목과 중복 여부, 변경 상태가 올바른지 검토한다.</p>');
+        lines.push(`<p class="step">Step3. '${escapeHtml(tbLabel)}' 타이틀바의 '저장' 버튼을 클릭하고, 목록에 변경 내용이 반영되었는지 확인한다.</p>`);
       }
       if (tb.hasDelete
         && !aiSectionTitles.has(`${tbLabel} 삭제`)
         && !aiSectionTitles.has(`${tbLabel} - 삭제`)) {
         lines.push(`<span class="bold-tag">${escapeHtml(tbLabel)} - 삭제</span>`);
-        lines.push('<p class="step">Step1. 삭제하고자 하는 행을 선택한다.</p>');
-        lines.push(`<p class="step">Step2. '${escapeHtml(tbLabel)}' 타이틀바의 '삭제' 버튼을 클릭한다.</p>`);
+        lines.push(`<p class="step">Step1. ${escapeHtml(tbLabel)}에서 삭제할 행을 선택하고 대상 정보가 맞는지 확인한다.</p>`);
+        lines.push('<p class="step">Step2. 삭제 전에 다른 업무에서 사용 중인 자료인지와 삭제 제한 조건을 확인한다.</p>');
+        lines.push(`<p class="step">Step3. '${escapeHtml(tbLabel)}' 타이틀바의 '삭제' 버튼을 클릭하고, 목록에서 해당 행이 제외되었는지 확인한다.</p>`);
       }
       for (const btn of tb.extButtons) {
         // "타이틀바 - 버튼명" 형식으로 AI가 이미 생성했으면 중복 추가 금지
@@ -248,6 +250,17 @@ function renderUsage(data: ClxParseResult, customTitle?: string): string {
   // AI 없을 때 정적 템플릿
   const menu = data.usage.menuTitleBar;
   const shortName = getProgramShortName(data);
+  const searchLabels = data.items.conditionGroups
+    .filter((g) => g.groupType === "조회조건")
+    .flatMap((g) => g.controls.map((c) => c.labelText))
+    .filter(Boolean)
+    .slice(0, 5)
+    .join(", ");
+  const gridNames = data.items.grids
+    .filter((g) => g.title)
+    .map((g) => g.title)
+    .slice(0, 3)
+    .join(", ");
 
   // 함수명 기준 전처리 검증 메시지 분류
   const inqVals = data.notes.validations.filter(v => /inq|inquiry|search/i.test(v.functionName));
@@ -256,21 +269,24 @@ function renderUsage(data: ClxParseResult, customTitle?: string): string {
 
   if (menu.hasInquiry) {
     lines.push(`<span class="bold-tag">${escapeHtml(shortName)} 조회</span>`);
-    lines.push('<p class="step">Step1. 조회조건을 입력한다.</p>');
-    lines.push('<p class="step">Step2. 화면 상단의 \'조회\' 버튼을 클릭한다.</p>');
+    lines.push(`<p class="step">Step1. 업무에 필요한 ${escapeHtml(shortName)} 자료를 찾기 위해 ${escapeHtml(searchLabels || "조회조건")}을 확인하고 입력한다.</p>`);
+    lines.push('<p class="step">Step2. 화면 상단의 \'조회\' 버튼을 클릭하여 조건에 맞는 자료를 불러온다.</p>');
+    lines.push(`<p class="step">Step3. ${escapeHtml(gridNames || "결과 목록")}에서 조회된 자료가 업무 대상과 일치하는지 확인한다.</p>`);
     for (const v of inqVals) {
       lines.push(`<p class="step note-warn">⚠ ${escapeHtml(v.message)}</p>`);
     }
   }
   if (menu.hasNew) {
     lines.push(`<span class="bold-tag">${escapeHtml(shortName)} 신규</span>`);
-    lines.push('<p class="step">Step1. 화면 상단의 \'신규\' 버튼을 클릭한다.</p>');
-    lines.push('<p class="step">Step2. 필수 항목을 입력한다.</p>');
+    lines.push(`<p class="step">Step1. 새로운 ${escapeHtml(shortName)} 자료를 등록해야 할 때 화면 상단의 '신규' 버튼을 클릭한다.</p>`);
+    lines.push('<p class="step">Step2. 입력 영역이 초기화되면 업무에 필요한 기본 정보와 상세 정보를 입력한다.</p>');
+    lines.push('<p class="step">Step3. 저장 전에 필수 항목과 목록의 변경 상태를 확인한다.</p>');
   }
   if (menu.hasSave) {
     lines.push(`<span class="bold-tag">${escapeHtml(shortName)} 저장</span>`);
-    lines.push('<p class="step">Step1. 수정하고자 하는 자료를 입력 또는 선택한다.</p>');
-    lines.push('<p class="step">Step2. 화면 상단의 \'저장\' 버튼을 클릭하여 저장처리를 진행한다.</p>');
+    lines.push(`<p class="step">Step1. ${escapeHtml(shortName)} 자료의 신규 입력 또는 수정 내용을 확인한다.</p>`);
+    lines.push('<p class="step">Step2. 필수 항목과 중복 여부를 검토한 뒤 화면 상단의 \'저장\' 버튼을 클릭한다.</p>');
+    lines.push(`<p class="step">Step3. 저장 후 ${escapeHtml(gridNames || "결과 목록")}에 변경 내용이 반영되었는지 확인한다.</p>`);
     if (data.notes.requiredFields.length > 0) {
       const allReq = data.notes.requiredFields.flatMap(f => f.texts);
       const shownReq = allReq.slice(0, 4);
@@ -284,8 +300,9 @@ function renderUsage(data: ClxParseResult, customTitle?: string): string {
   }
   if (menu.hasDelete) {
     lines.push(`<span class="bold-tag">${escapeHtml(shortName)} 삭제</span>`);
-    lines.push('<p class="step">Step1. 삭제하고자 하는 자료를 선택한다.</p>');
-    lines.push('<p class="step">Step2. 화면 상단의 \'삭제\' 버튼을 클릭하여 삭제처리를 진행한다.</p>');
+    lines.push(`<p class="step">Step1. ${escapeHtml(gridNames || "목록")}에서 삭제할 자료를 선택한다.</p>`);
+    lines.push('<p class="step">Step2. 삭제 전에 해당 자료가 다른 업무에서 사용 중인지와 삭제 제한 조건을 확인한다.</p>');
+    lines.push('<p class="step">Step3. 화면 상단의 \'삭제\' 버튼을 클릭하여 삭제 처리를 진행하고, 목록에서 삭제 여부를 확인한다.</p>');
     for (const v of delVals) {
       lines.push(`<p class="step note-warn">⚠ ${escapeHtml(v.message)}</p>`);
     }
@@ -307,13 +324,15 @@ function renderUsage(data: ClxParseResult, customTitle?: string): string {
     }
     if (tb.hasSave) {
       lines.push(`<span class="bold-tag">${escapeHtml(tbLabel)} - 저장</span>`);
-      lines.push('<p class="step">Step1. 수정하고자 하는 자료를 입력한다.</p>');
-      lines.push(`<p class="step">Step2. '${escapeHtml(tbLabel)}' 타이틀바의 '저장' 버튼을 클릭한다.</p>`);
+      lines.push(`<p class="step">Step1. ${escapeHtml(tbLabel)}에서 신규 입력 또는 수정된 행을 확인한다.</p>`);
+      lines.push('<p class="step">Step2. 저장 전에 필수 항목과 중복 여부, 변경 상태가 올바른지 검토한다.</p>');
+      lines.push(`<p class="step">Step3. '${escapeHtml(tbLabel)}' 타이틀바의 '저장' 버튼을 클릭하고, 목록에 변경 내용이 반영되었는지 확인한다.</p>`);
     }
     if (tb.hasDelete) {
       lines.push(`<span class="bold-tag">${escapeHtml(tbLabel)} - 삭제</span>`);
-      lines.push('<p class="step">Step1. 삭제하고자 하는 행을 선택한다.</p>');
-      lines.push(`<p class="step">Step2. '${escapeHtml(tbLabel)}' 타이틀바의 '삭제' 버튼을 클릭한다.</p>`);
+      lines.push(`<p class="step">Step1. ${escapeHtml(tbLabel)}에서 삭제할 행을 선택하고 대상 정보가 맞는지 확인한다.</p>`);
+      lines.push('<p class="step">Step2. 삭제 전에 다른 업무에서 사용 중인 자료인지와 삭제 제한 조건을 확인한다.</p>');
+      lines.push(`<p class="step">Step3. '${escapeHtml(tbLabel)}' 타이틀바의 '삭제' 버튼을 클릭하고, 목록에서 해당 행이 제외되었는지 확인한다.</p>`);
     }
     for (const btn of tb.extButtons) {
       lines.push(`<span class="bold-tag">${escapeHtml(tbLabel)} - ${escapeHtml(btn.name)}</span>`);

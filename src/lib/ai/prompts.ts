@@ -312,31 +312,55 @@ export function buildUsagePrompt(parseResult: ClxParseResult, udcHint = ""): AiM
   // 조회조건/처리조건 항목
   const searchGroups = parseResult.items.conditionGroups.filter((g) => g.groupType === "조회조건");
   const conditionGroups = parseResult.items.conditionGroups.filter((g) => g.groupType === "처리조건");
+  const formatControlLabel = (c: ConditionControlInfo) =>
+    c.logicHint ? `${c.labelText} (${c.logicHint})` : c.labelText;
+  const searchConditionLines = searchGroups
+    .map((g, i) => {
+      const controls = g.controls.map(formatControlLabel).filter(Boolean).slice(0, 10).join(", ");
+      return controls ? `  - ${g.title || `조회조건 ${i + 1}`}: ${controls}` : "";
+    })
+    .filter(Boolean)
+    .join("\n");
+  const conditionLines = conditionGroups
+    .map((g, i) => {
+      const controls = g.controls.map(formatControlLabel).filter(Boolean).slice(0, 10).join(", ");
+      return controls ? `  - ${g.title || `처리조건 ${i + 1}`}: ${controls}` : "";
+    })
+    .filter(Boolean)
+    .join("\n");
   const searchConditionLabels = searchGroups
     .flatMap((g) => g.controls.map((c) => c.labelText))
     .filter(Boolean)
-    .slice(0, 4)
+    .slice(0, 8)
     .join(", ");
   const conditionLabels = conditionGroups
     .flatMap((g) => g.controls.map((c) => c.labelText))
     .filter(Boolean)
-    .slice(0, 4)
+    .slice(0, 8)
     .join(", ");
 
   // 그리드 정보 (title 없는 그리드는 제외: 내부 ID가 AI에 노출되는 것을 방지)
   const gridLines = parseResult.items.grids
     .filter((g) => g.columns.length > 0 && g.title)
     .map((g) => {
-      const cols = g.columns.slice(0, 4).map((c) => c.headerText).join(", ");
-      return `  - ${g.title}: ${cols}`;
+      const cols = g.columns.slice(0, 8).map((c) => {
+        const purpose = c.purpose === "입력" ? "입력" : c.purpose === "표시 또는 입력" ? "표시/입력" : "표시";
+        return `${c.headerText}(${purpose})`;
+      }).join(", ");
+      const options: string[] = [];
+      if (g.hasCheckbox) options.push("행 선택 가능");
+      if (g.hasState) options.push("변경 상태 표시");
+      if (g.sortable) options.push("정렬 가능");
+      const suffix = options.length > 0 ? ` / ${options.join(", ")}` : "";
+      return `  - ${g.title}: ${cols}${suffix}`;
     })
     .join("\n");
 
   // 필수값
   const allRequiredTexts = parseResult.notes.requiredFields.flatMap((f) => f.texts);
-  const shownRequiredTexts = allRequiredTexts.slice(0, 4);
+  const shownRequiredTexts = allRequiredTexts.slice(0, 8);
   const requiredInfo = shownRequiredTexts.join(", ") +
-    (allRequiredTexts.length > 4 ? ` 외 ${allRequiredTexts.length - 4}개` : "");
+    (allRequiredTexts.length > 8 ? ` 외 ${allRequiredTexts.length - 8}개` : "");
 
   // 검증 메시지 (inq/save/del 전용 및 완료 메시지 제외 + 버튼명 레이블 포함)
   const VALIDATION_COMPLETION_RE = /^(?:처리|저장|삭제|등록|수정|복사|생성|변경|갱신|적용|실행)[^\n]*?(?:되었습니다|했습니다|하였습니다)[.!]?\s*$/;
@@ -422,7 +446,9 @@ export function buildUsagePrompt(parseResult: ClxParseResult, udcHint = ""): AiM
   }
   if (searchConditionLabels) contextParts.push(`조회조건 항목: ${searchConditionLabels}`);
   if (conditionLabels) contextParts.push(`처리조건 항목: ${conditionLabels}`);
-  if (gridLines) contextParts.push(`결과 목록(그리드):\n${gridLines}`);
+  if (searchConditionLines) contextParts.push(`조회조건 상세:\n${searchConditionLines}`);
+  if (conditionLines) contextParts.push(`처리조건 상세:\n${conditionLines}`);
+  if (gridLines) contextParts.push(`결과 목록 상세(그리드):\n${gridLines}`);
   if (requiredInfo) contextParts.push(`필수 입력값: ${requiredInfo}`);
   if (validationMessages) contextParts.push(`검증/주의사항:\n${validationMessages}`);
   if (popupInfo) contextParts.push(`팝업 화면: ${popupInfo}`);
@@ -444,27 +470,48 @@ Step2. 설명
 
 작성 규칙:
 - {B}...{/B} 안의 기능 제목에는 '기능'이라는 단어를 포함하지 마세요. 예: {B}조회{/B}, {B}저장{/B}
-- 각 기능당 Step은 3~5개로 작성하세요 (기능 복잡도에 따라 조절)
+- 각 기능당 Step은 4~6개로 작성하세요 (기능 복잡도에 따라 조절)
+- 각 Step은 단순 클릭 안내만 쓰지 말고, 업무 목적·사용자 행동·확인해야 할 결과 중 최소 2가지를 포함하세요
+- 각 Step은 이전 Step의 결과를 기반으로 다음 Step이 자연스럽게 이어지도록 연결성을 가지게 작성하세요. 단순 나열 금지
+  예시) Step1. 조회할 **학년도**를 선택합니다.
+       Step2. 앞서 선택한 학년도에 해당하는 자료를 조회하려면 **조회** 버튼을 클릭합니다.
+- 각 Step의 시작 부분에 이전 단계의 수행 결과를 암시하는 연결어(앞서 선택한, 입력한 정보를 확인한 후, 조회된 결과 목록에서 등)를 자연스럽게 포함하세요
+  예시) (나쁨) Step1. 저장 버튼을 클릭합니다.
+       (좋음) Step1. 입력한 정보를 최종 확인한 후 **저장** 버튼을 클릭합니다.
 - 작성자 업무 힌트의 [업무흐름]은 전체 업무 맥락과 Step 순서를 정할 때 우선 참고하세요. 단, 화면에 없는 버튼이나 기능은 새로 만들지 마세요
 - 작성자 업무 힌트의 [필수사항]은 조회/신규/저장/처리 Step의 선행조건 또는 확인사항으로 자연스럽게 반영하세요
 - 작성자 업무 힌트의 [주의사항]은 해당 기능 Step에서 필요한 경우 간단히 안내하되, 별도 기능으로 만들지 마세요
-- 상단 메뉴 타이틀바의 조회: 조회조건 입력 → 조회 버튼 클릭 → 결과 목록 확인 흐름으로 작성
-- 상단 메뉴 타이틀바의 신규/저장: 데이터 입력 → 필수값 확인 → 저장 실행 → 완료 확인 흐름으로 작성
-- 상단 메뉴 타이틀바의 삭제: 항목 선택 → 삭제 실행 → 확인 메시지 처리 흐름으로 작성
+- 상단 메뉴 타이틀바의 조회: 어떤 업무 대상을 찾는지 설명 → 주요 조회조건 입력 → 조회 버튼 클릭 → 결과 목록의 핵심 컬럼 확인 → 필요한 후속 작업으로 이어지는 흐름으로 작성
+- 상단 메뉴 타이틀바의 신규: 새 자료를 등록해야 하는 업무 상황 설명 → 신규 버튼 클릭 → 입력/상세 영역 확인 → 필수 항목 입력 → 저장 전 검토 흐름으로 작성
+- 상단 메뉴 타이틀바의 저장: 변경 대상 확인 → 필수값/중복 불가 조건 확인 → 저장 실행 → 저장 후 결과 목록 또는 상세 정보 반영 확인 흐름으로 작성
+- 상단 메뉴 타이틀바의 삭제: 삭제 대상 선택 → 삭제 제한/후속 업무 영향 확인 → 삭제 실행 → 결과 목록에서 삭제 여부 확인 흐름으로 작성
 - 'CRUD 비즈니스 로직' 블록이 제공된 기능(조회/신규/저장/삭제)은 해당 블록의 사전조건·처리·검증·필수 입력값·중복 불가 내용을 반드시 Step에 반영하세요. 사전조건/검증 메시지는 {MSG}...{/MSG} 형식 그대로 노출하고, 필수 입력값과 중복 불가 조건은 입력/저장 Step에서 안내하세요. 블록이 없는 기능은 위의 일반 흐름을 따르세요
+- 사전조건(preconditions)·필수 입력값(requiredFields)·중복 불가(uniqueKeys)가 모두 같은 기능(예: 저장)에 속해 있다면 각각을 별도의 Step으로 분리하지 말고, 업무 흐름상 순서가 가장 적절한 하나의 Step 안에 '행동 안내 → 조건 불충족 시 메시지' 순서로 통합하여 작성하세요
+  예시) Step2. 반드시 입력해야 할 항목(교과목코드, 과목명(한글), ...)이 모두 입력되었는지 확인합니다. 누락된 항목이 있으면 저장 시 아래와 같은 메시지가 출력됩니다.
+       {MSG}필수 입력 항목을 확인해주시기 바랍니다.{/MSG}
+       Step3. **과목명**과 **학과명**의 조합은 중복될 수 없습니다. 이미 등록된 조합이면 저장 시 아래와 같은 메시지가 출력됩니다.
+       {MSG}이미 등록된 과목명과 학과명 조합입니다.{/MSG}
 - 그리드 타이틀바 기능은 소제목을 반드시 '{B}타이틀바명 - 기능명{/B}' 형식으로 작성하세요. 단, 신규/저장/삭제는 반드시 '제공 기능(그리드 타이틀바)' 목록에 해당 항목이 명시된 경우에만 작성하고, 목록에 없는 기능은 절대 추가하지 마세요
-- 추가 버튼: 사전 선택 조건 → 버튼 클릭 → 실행 결과 확인 흐름으로 작성하고, 관련 검증/주의사항이 있으면 Step에 반영하세요
+- 그리드 타이틀바의 저장/삭제도 단순 버튼 클릭으로 끝내지 말고, 대상 목록/행 확인 → 필수값·중복·삭제 제한 조건 확인 → 저장/삭제 실행 → 해당 그리드에서 반영 여부 확인 흐름으로 작성하세요
+- 추가 버튼/기타 버튼: 버튼을 사용하는 업무 상황 설명 → 사전 선택 조건 → 버튼 클릭 → 팝업/서버처리/그리드 변경 결과 확인 흐름으로 작성하고, 관련 검증/주의사항이 있으면 Step에 반영하세요
 - '추가 버튼 상세' 또는 '그리드 타이틀바 추가 버튼 상세'에 사전조건/검증/확인/처리 항목이 제공된 경우: 사전조건·검증·확인 메시지는 {MSG}...{/MSG} 형식 그대로 해당 Step에 노출하고, 처리 항목은 버튼 클릭 후의 동작 흐름으로 서술하세요. 확인(confirm) 메시지는 "버튼 클릭 시 다음 확인 메시지가 표시되며, 확인을 누르면 진행됩니다.\n{MSG}...{/MSG}" 형식으로 작성하세요
 - '추가 버튼 상세'에 나열된 모든 버튼은 반드시 각자 {B}버튼명{/B} 섹션을 가져야 합니다. 누락 없이 모두 포함하세요
-- 화면에 제공된 조회조건 항목명, 그리드 컬럼명을 Step 설명에 직접 활용하세요
+- 화면에 제공된 조회조건 항목명, 처리조건 항목명, 그리드명, 그리드 컬럼명을 Step 설명에 직접 활용하세요
+- 결과 목록 설명에는 사용자가 무엇을 확인해야 하는지 포함하세요. 예: 목록에서 교과목코드, 교과목명, 폐지 여부를 확인합니다
 - 검증/주의사항에 메시지가 있는 경우, 해당 Step에서는 먼저 사용자가 취해야 할 행동을 긍정문(~해야 합니다 / ~합니다)으로 설명하고, 그 다음에 조건 불충족 시 출력되는 메시지를 안내하세요
-  형식: "Step N. [사용자가 취해야 할 행동]. [조건 불충족 시] 아래와 같은 메시지가 출력됩니다.\n{MSG}메시지 내용{/MSG}"
+  형식: "Step N. [사용자가 취해야 할 행동(긍정문)]. [조건을 충족하지 못한 경우] 아래와 같은 메시지가 출력됩니다.\n{MSG}메시지 내용{/MSG}"
   예시1) Step2. 먼저 분반시간표 보기를 선택하여야 합니다. 선택하지 않은 경우 아래와 같은 메시지가 출력됩니다.
          {MSG}분반시간표 보기로 선택하여 시간표변경을 진행해주시기 바랍니다.{/MSG}
   예시2) Step3. 변경할 과목을 시간표에서 선택합니다. 선택하지 않은 경우 아래와 같은 메시지가 출력됩니다.
          {MSG}변경할 과목을 시간표에서 선택해주시기 바랍니다.{/MSG}
   예시3) Step1. 개설년도를 입력합니다. 입력하지 않은 경우 아래와 같은 메시지가 출력됩니다.
          {MSG}개설년도를 입력해주시기 바랍니다.{/MSG}
+  예시4 - 필수 입력값이 있는 저장 기능):
+       Step3. 반드시 입력해야 할 항목(교과목코드, 과목명(한글), 이수구분, ...)이 모두 입력되었는지 확인합니다. 누락된 항목이 있으면 저장 시 아래와 같은 메시지가 출력됩니다.
+       {MSG}필수 입력 항목을 확인해주시기 바랍니다.{/MSG}
+  예시5 - 중복 불가 키가 있는 저장 기능):
+       Step4. **과목명**과 **학과명**의 조합은 중복될 수 없습니다. 이미 등록된 조합이면 저장 시 아래와 같은 메시지가 출력됩니다.
+       {MSG}이미 등록된 과목명과 학과명 조합입니다.{/MSG}
 - "XXX 메시지를 확인합니다" 또는 "XXX 메시지가 표시됩니다" 형식은 절대 사용하지 마세요
 - 조회조건 항목명, 버튼명, 그리드 컬럼명 등 화면의 고유 명칭을 Step에 언급할 때는 반드시 **항목명** 형식으로 굵게 표시하세요
   예: Step1. **복학년도**와 **복학학기**를 선택한 후 **조회** 버튼을 클릭합니다.
