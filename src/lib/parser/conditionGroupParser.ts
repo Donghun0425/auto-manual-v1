@@ -77,13 +77,82 @@ function findUdcLabelFromFullContent(
 
   if (found.length > 0) return [...new Set(found)].join(' / ');
 
-  // 호스트 파일에 라벨 호출 없음 → 레지스트리 defaultLabels 폴백
+  // 호스트 파일에 라벨 호출 없음 → 레지스트리 defaultLabels 폴백 (visible=false 제외)
   if (udcInfo) {
-    const defaults = Object.values(udcInfo.defaultLabels).filter(Boolean);
+    const visibleFalseProps = extractVisibleFalseForInstance(content, controlId);
+    const defaults = Object.entries(udcInfo.defaultLabels)
+      .filter(([propName]) => {
+        // propName이 "bplcCdLabel" 형태 → "bplcCdVisible"로 변환하여 visible=false 체크
+        const visiblePropName = propName.replace(/Label$/i, 'Visible');
+        return !visibleFalseProps.has(visiblePropName);
+      })
+      .map(([, label]) => label)
+      .filter(Boolean);
     if (defaults.length > 0) return [...new Set(defaults)].join(' / ');
   }
 
   return null;
+}
+
+/**
+ * CLX 파일에서 특정 UDC 인스턴스의 visible=false 프로퍼티명을 수집한다.
+ * 속성 할당과 메서드 호출 모두 지원하며, 등장 순서 기준 나중이 최종값이다.
+ */
+function extractVisibleFalseForInstance(content: string, instanceId: string): Set<string> {
+  const all: { propertyName: string; visible: boolean; position: number }[] = [];
+
+  // 패턴 ①: app.lookup("ID").xxxVisible = false
+  const re1 = new RegExp(
+    `app\\.lookup\\("${instanceId}"\\)\\.(\\w+Visible)\\s*=\\s*(false|true)`,
+    'g'
+  );
+  let m: RegExpExecArray | null;
+  while ((m = re1.exec(content)) !== null) {
+    all.push({ propertyName: m[1], visible: m[2] === 'true', position: m.index });
+  }
+
+  // 패턴 ②: app.lookup("ID").setXxxVisible(false)
+  const re2 = new RegExp(
+    `app\\.lookup\\("${instanceId}"\\)\\.set(\\w+Visible)\\s*\\(\\s*(false|true)\\s*\\)`,
+    'g'
+  );
+  while ((m = re2.exec(content)) !== null) {
+    const rawName = m[1]; // "BplcCdVisible"
+    const propertyName = rawName[0].toLowerCase() + rawName.slice(1);
+    all.push({ propertyName, visible: m[2] === 'true', position: m.index });
+  }
+
+  // 패턴 ③: 변수 선언에서 controlId 매핑 후 변수명.xxxVisible = false
+  //   var xxx = new udc.pkg.Name("ID"); xxx.xxxVisible = false
+  const varDeclRe = new RegExp(
+    `var\\s+(\\w+)\\s*=\\s*(?:linker\\.\\w+\\s*=\\s*)?new\\s+udc\\.\\w+\\.\\w+\\s*\\(\\s*"${instanceId}"\\s*\\)`,
+    'g'
+  );
+  while ((m = varDeclRe.exec(content)) !== null) {
+    const varName = m[1];
+    const afterDecl = content.slice(m.index, m.index + 500);
+    const visibleRe = new RegExp(`\\b${varName}\\.(\\w+Visible)\\s*=\\s*(false|true)`, 'g');
+    let vm: RegExpExecArray | null;
+    while ((vm = visibleRe.exec(afterDecl)) !== null) {
+      all.push({ propertyName: vm[1], visible: vm[2] === 'true', position: m.index + vm.index });
+    }
+  }
+
+  // 동일 propertyName은 position이 큰 쪽(나중 코드)이 최종값
+  const latestMap = new Map<string, { propertyName: string; visible: boolean; position: number }>();
+  for (const item of all) {
+    const existing = latestMap.get(item.propertyName);
+    if (!existing || item.position > existing.position) {
+      latestMap.set(item.propertyName, item);
+    }
+  }
+
+  // 최종 visible=false 인 항목만 반환
+  return new Set(
+    [...latestMap.values()]
+      .filter(item => !item.visible)
+      .map(item => item.propertyName)
+  );
 }
 
 /**

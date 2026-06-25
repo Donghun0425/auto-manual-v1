@@ -336,6 +336,16 @@ export interface ResolvedUdcInfo {
   }[];
 }
 
+/** CLX 파일에서 추출한 UDC Visible 속성 오버라이드 (속성 할당 + 메서드 호출) */
+export interface VisibleOverride {
+  /** UDC 인스턴스 ID (S_ACNTG_COMBO) */
+  instanceId: string;
+  /** 프로퍼티명 (bplcCdVisible) */
+  propertyName: string;
+  /** visible 값 */
+  visible: boolean;
+}
+
 /** 파일 단위 UDC 보강 컨텍스트 (AI 프롬프트 주입용) */
 export interface UdcEnrichmentContext {
   /** 해석된 UDC 목록 */

@@ -103,5 +103,6 @@ export type {
   UdcParseResult,
   LabelResolution,
   ResolvedUdcInfo,
+  VisibleOverride,
   UdcEnrichmentContext,
 } from "./udc";
