@@ -34,6 +34,111 @@ interface SetterCall {
   argLabel: string;
 }
 
+interface UdcInstance {
+  instanceId: string;
+  variableName: string;
+}
+
+interface FileUploadActionSpec {
+  controlId: string;
+  labelProperties: string[];
+  visibleProperty: string;
+  setterNames?: string[];
+}
+
+const FILE_UPLOAD_ACTION_SPECS: FileUploadActionSpec[] = [
+  {
+    controlId: "BTN_UPLOAD_POPUP_OPEN",
+    labelProperties: ["selectButtonText"],
+    visibleProperty: "isSelectButtonVisible",
+  },
+  {
+    controlId: "BTN_DOWNLOAD",
+    labelProperties: ["downloadButtonText"],
+    visibleProperty: "isDownloadButtonVisible",
+  },
+  {
+    controlId: "BTN_DELETE",
+    labelProperties: ["deleteButtonText"],
+    visibleProperty: "isDeleteButtonVisible",
+  },
+  {
+    controlId: "BTN_INQ",
+    labelProperties: ["searchButtonText", "inqButtonText"],
+    visibleProperty: "isInqButtonVisible",
+    setterNames: ["setInqButtonText"],
+  },
+  {
+    controlId: "BTN_SAVE",
+    labelProperties: ["saveButtonText"],
+    visibleProperty: "isSaveButtonVisible",
+  },
+];
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function parseLiteral(raw: string): string | boolean {
+  if (raw === "true" || raw === "false") return raw === "true";
+  const quote = raw[0];
+  const value = raw.slice(1, -1);
+  if (quote === '"') {
+    try {
+      return JSON.parse(raw) as string;
+    } catch {
+      return value;
+    }
+  }
+  return value.replace(/\\'/g, "'").replace(/\\\\/g, "\\");
+}
+
+function findUdcInstances(clxContent: string, shortName: string): UdcInstance[] {
+  const result: UdcInstance[] = [];
+  const re = new RegExp(
+    `var\\s+(\\w+)\\s*=\\s*(?:linker\\.\\w+\\s*=\\s*)?new\\s+udc\\.\\w+\\.${escapeRegExp(shortName)}\\s*\\(\\s*["']([^"']+)["']`,
+    "g"
+  );
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(clxContent)) !== null) {
+    result.push({ variableName: match[1], instanceId: match[2] });
+  }
+  return result;
+}
+
+/** UDC 인스턴스에 적용된 문자열/불리언 프로퍼티의 최종값을 코드 등장 순서로 해석한다. */
+function findInstanceOverride(
+  clxContent: string,
+  instance: UdcInstance,
+  propertyName: string,
+  setterNames: string[] = []
+): string | boolean | undefined {
+  const literal = `(true|false|"(?:\\\\.|[^"\\\\])*"|'(?:\\\\.|[^'\\\\])*')`;
+  const instanceId = escapeRegExp(instance.instanceId);
+  const variableName = escapeRegExp(instance.variableName);
+  const property = escapeRegExp(propertyName);
+  const defaultSetter = `set${propertyName[0].toUpperCase()}${propertyName.slice(1)}`;
+  const setters = [...new Set([defaultSetter, ...setterNames])].map(escapeRegExp).join("|");
+  const matches: { position: number; value: string | boolean }[] = [];
+
+  const patterns = [
+    new RegExp(`app\\.lookup\\(["']${instanceId}["']\\)\\.${property}\\s*=\\s*${literal}`, "g"),
+    new RegExp(`\\b${variableName}\\.${property}\\s*=\\s*${literal}`, "g"),
+    new RegExp(`app\\.lookup\\(["']${instanceId}["']\\)\\.(?:${setters})\\s*\\(\\s*${literal}`, "g"),
+    new RegExp(`\\b${variableName}\\.(?:${setters})\\s*\\(\\s*${literal}`, "g"),
+  ];
+
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(clxContent)) !== null) {
+      matches.push({ position: match.index, value: parseLiteral(match[1]) });
+    }
+  }
+
+  matches.sort((a, b) => a.position - b.position);
+  return matches.at(-1)?.value;
+}
+
 /**
  * CLX 본문에서 setter 호출을 추출한다.
  * 매칭: app.lookup("ID").funcName("문자열인자")
@@ -213,6 +318,116 @@ function applyVisibleFilter(
   return labels.filter(l => !hiddenControlIds.has(l.targetControlId ?? ''));
 }
 
+function defaultPropertyValue(
+  detail: UdcDetail,
+  propertyNames: string[]
+): string | boolean | undefined {
+  for (const propertyName of propertyNames) {
+    const raw = detail.properties.find((p) => p.property_name === propertyName)?.default_value;
+    if (raw !== null && raw !== undefined) return parseLiteralValue(raw);
+  }
+  return undefined;
+}
+
+function parseLiteralValue(raw: string): string | boolean {
+  if (raw === "true" || raw === "false") return raw === "true";
+  return raw;
+}
+
+function instancePropertyValue(
+  detail: UdcDetail,
+  clxContent: string,
+  instance: UdcInstance,
+  propertyNames: string[],
+  setterNames: string[] = []
+): string | boolean | undefined {
+  for (const propertyName of propertyNames) {
+    const override = findInstanceOverride(
+      clxContent,
+      instance,
+      propertyName,
+      setterNames
+    );
+    if (override !== undefined) return override;
+  }
+  return defaultPropertyValue(detail, propertyNames);
+}
+
+/**
+ * 파일 업로드 UDC는 아이콘 버튼의 text가 비어 있고 버튼 문구가 app property에
+ * 보관되므로, 컨트롤 default_label 대신 *ButtonText/*ButtonVisible 쌍으로 액션을 만든다.
+ */
+function resolveFileUploadActions(
+  detail: UdcDetail,
+  clxContent: string
+): ResolvedUdcInfo["actions"] | undefined {
+  const hasActionMetadata = FILE_UPLOAD_ACTION_SPECS.some((spec) =>
+    spec.labelProperties.some((name) =>
+      detail.properties.some((property) => property.property_name === name)
+    )
+  );
+  if (!hasActionMetadata) return undefined;
+
+  const instances = findUdcInstances(clxContent, detail.component.short_name);
+  const controls = new Map(detail.controls.map((control) => [control.control_id, control]));
+  const actions: ResolvedUdcInfo["actions"] = [];
+  const seen = new Set<string>();
+
+  for (const spec of FILE_UPLOAD_ACTION_SPECS) {
+    const defaultLabel = defaultPropertyValue(detail, spec.labelProperties);
+    if (typeof defaultLabel !== "string" || !defaultLabel.trim()) continue;
+
+    const candidates = instances.length > 0
+      ? instances.map((instance) => {
+          const visible = instancePropertyValue(
+            detail,
+            clxContent,
+            instance,
+            [spec.visibleProperty]
+          );
+          const label = instancePropertyValue(
+            detail,
+            clxContent,
+            instance,
+            spec.labelProperties,
+            spec.setterNames
+          );
+          return {
+            visible: visible !== false,
+            label: typeof label === "string" ? label.trim() : "",
+          };
+        })
+      : [{ visible: defaultPropertyValue(detail, [spec.visibleProperty]) !== false, label: defaultLabel.trim() }];
+
+    const control = controls.get(spec.controlId);
+    for (const candidate of candidates) {
+      if (!candidate.visible || !candidate.label) continue;
+      const key = `${spec.controlId}\u0000${candidate.label}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      actions.push({
+        controlId: spec.controlId,
+        actionType: control?.action_type ?? null,
+        actionTarget: control?.action_target ?? null,
+        label: candidate.label,
+      });
+    }
+  }
+
+  return actions;
+}
+
+function resolveControlActions(detail: UdcDetail): ResolvedUdcInfo["actions"] {
+  return detail.controls
+    .filter((c) => c.control_type === "button" && (c.action_type || c.default_label))
+    .map((c) => ({
+      controlId: c.control_id,
+      actionType: c.action_type,
+      actionTarget: c.action_target,
+      label: c.default_label,
+    }));
+}
+
 /**
  * 단일 UDC 의 최종 매뉴얼 보강 정보를 해석한다.
  */
@@ -231,14 +446,9 @@ export function resolveUdc(detail: UdcDetail, clxContent: string): ResolvedUdcIn
   const cascade =
     detail.controls.find((c) => c.cascade_config !== null)?.cascade_config ?? null;
 
-  const actions = detail.controls
-    .filter((c) => c.control_type === "button" && (c.action_type || c.default_label))
-    .map((c) => ({
-      controlId: c.control_id,
-      actionType: c.action_type,
-      actionTarget: c.action_target,
-      label: c.default_label,
-    }));
+  const actions = detail.component.component_type === "file_upload"
+    ? resolveFileUploadActions(detail, clxContent) ?? resolveControlActions(detail)
+    : resolveControlActions(detail);
 
   return {
     shortName: detail.component.short_name,

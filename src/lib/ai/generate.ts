@@ -24,6 +24,7 @@ import {
 import { findDictionaryByTerms, upsertDictionary } from "@/lib/supabase/queries/dictionary";
 import { enrichUdcContext, formatUdcHint } from "./enrich-udc-context";
 import { applyUdcSynthesis } from "./synthesize-udc-items";
+import { removeDuplicateUdcUsageSections } from "./udc-usage-dedupe";
 
 export interface GenerateFileOptions {
   filePath: string;
@@ -449,6 +450,9 @@ async function enrichUsageText(
         }
       }
     }
+
+    // 후처리 2-2: UDC 버튼이 실제 소유 타이틀바와 다른 타이틀바에 중복 생성된 경우 제거
+    text = removeDuplicateUdcUsageSections(text, parseResult);
 
     parseResult.aiUsageText = text;
   }

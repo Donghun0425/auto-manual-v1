@@ -30,7 +30,7 @@ export function applyUdcSynthesis(
   if (!ctx.available || ctx.udcs.length === 0) return;
 
   for (const udc of ctx.udcs) {
-    const groupTitle = resolveUdcGroupTitle(clxContent, udc);
+    const groupTitle = resolveUdcGroupTitle(clxContent, udc, parseResult);
 
     // 항목: info 형 UDC 의 내부 표시 필드
     if (udc.componentType === "info") {
@@ -115,7 +115,11 @@ function injectUdcButtons(
  * CLX 의 INFOGROUP{N} 컨테이너 ↔ CT_INFOTITLE{N} 타이틀바 대응을 이용하며,
  * 찾지 못하면 UDC displayName 으로 폴백한다.
  */
-function resolveUdcGroupTitle(content: string, udc: ResolvedUdcInfo): string {
+function resolveUdcGroupTitle(
+  content: string,
+  udc: ResolvedUdcInfo,
+  parseResult: ClxParseResult
+): string {
   const instRe = new RegExp(`new\\s+udc\\.\\w+\\.${udc.shortName}\\s*\\(\\s*"([^"]+)"`);
   const m = instRe.exec(content);
   if (m) {
@@ -126,6 +130,17 @@ function resolveUdcGroupTitle(content: string, udc: ResolvedUdcInfo): string {
       if (title) return title;
     }
   }
+
+  // 파일 UDC에 전용 인포 타이틀이 없으면 기술적인 컴포넌트명보다
+  // 사용자가 실제로 작업 대상을 선택하는 화면 목록명을 우선한다.
+  if (udc.componentType === "file_upload") {
+    const gridTitle = parseResult.items.grids.find((grid) => grid.title)?.title;
+    if (gridTitle) return gridTitle;
+
+    const titleBarTitle = parseResult.usage.titleBars.find((bar) => bar.title)?.title;
+    if (titleBarTitle) return titleBarTitle;
+  }
+
   return udc.displayName || udc.shortName;
 }
 
