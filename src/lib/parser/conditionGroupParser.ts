@@ -11,9 +11,10 @@
  *             호스트 파일에 없으면 defaultLabels 폴백
  * - CheckBox: .text = "..." 속성을 라벨로 사용
  */
-import { ConditionGroupInfo, ConditionControlInfo } from '@/types';
-import { UDC_REGISTRY, UdcInfo } from './udcRegistry';
-import { normalizeLabel } from '@/lib/utils';
+import type { ConditionGroupInfo, ConditionControlInfo } from '@/types';
+import { UDC_REGISTRY, type UdcInfo } from './udcRegistry.ts';
+import { normalizeLabel } from '../utils.ts';
+import { isControlVisibleInLayout } from './visibility.ts';
 
 /** 입력 컨트롤로 간주하지 않을 타입 키워드 */
 const SKIP_TYPES = new Set([
@@ -100,10 +101,11 @@ function findUdcLabelFromFullContent(
  */
 function extractVisibleFalseForInstance(content: string, instanceId: string): Set<string> {
   const all: { propertyName: string; visible: boolean; position: number }[] = [];
+  const idEsc = instanceId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
   // 패턴 ①: app.lookup("ID").xxxVisible = false
   const re1 = new RegExp(
-    `app\\.lookup\\("${instanceId}"\\)\\.(\\w+Visible)\\s*=\\s*(false|true)`,
+    `app\\.lookup\\("${idEsc}"\\)\\.(\\w+Visible)\\s*=\\s*(false|true)`,
     'g'
   );
   let m: RegExpExecArray | null;
@@ -113,7 +115,7 @@ function extractVisibleFalseForInstance(content: string, instanceId: string): Se
 
   // 패턴 ②: app.lookup("ID").setXxxVisible(false)
   const re2 = new RegExp(
-    `app\\.lookup\\("${instanceId}"\\)\\.set(\\w+Visible)\\s*\\(\\s*(false|true)\\s*\\)`,
+    `app\\.lookup\\("${idEsc}"\\)\\.set(\\w+Visible)\\s*\\(\\s*(false|true)\\s*\\)`,
     'g'
   );
   while ((m = re2.exec(content)) !== null) {
@@ -125,16 +127,18 @@ function extractVisibleFalseForInstance(content: string, instanceId: string): Se
   // 패턴 ③: 변수 선언에서 controlId 매핑 후 변수명.xxxVisible = false
   //   var xxx = new udc.pkg.Name("ID"); xxx.xxxVisible = false
   const varDeclRe = new RegExp(
-    `var\\s+(\\w+)\\s*=\\s*(?:linker\\.\\w+\\s*=\\s*)?new\\s+udc\\.\\w+\\.\\w+\\s*\\(\\s*"${instanceId}"\\s*\\)`,
+    `var\\s+(\\w+)\\s*=\\s*(?:linker\\.\\w+\\s*=\\s*)?new\\s+udc\\.[\\w.]+\\s*\\(\\s*"${idEsc}"\\s*\\)`,
     'g'
   );
   while ((m = varDeclRe.exec(content)) !== null) {
     const varName = m[1];
-    const afterDecl = content.slice(m.index, m.index + 500);
+    const afterDecl = content.slice(m.index + m[0].length);
+    const addChildM = new RegExp(`container\\.addChild\\(\\s*${varName}\\b`).exec(afterDecl);
+    const scope = addChildM ? afterDecl.slice(0, addChildM.index) : afterDecl.slice(0, 2000);
     const visibleRe = new RegExp(`\\b${varName}\\.(\\w+Visible)\\s*=\\s*(false|true)`, 'g');
     let vm: RegExpExecArray | null;
-    while ((vm = visibleRe.exec(afterDecl)) !== null) {
-      all.push({ propertyName: vm[1], visible: vm[2] === 'true', position: m.index + vm.index });
+    while ((vm = visibleRe.exec(scope)) !== null) {
+      all.push({ propertyName: vm[1], visible: vm[2] === 'true', position: m.index + m[0].length + vm.index });
     }
   }
 
@@ -362,8 +366,8 @@ function parseBodyControls(body: string, fullContent: string): Array<{
     const isReadOnly = new RegExp(`${varName}\\.readOnly\\s*=\\s*true`).test(outerBody);
     const isDisabled = new RegExp(`${varName}\\.enable\\s*=\\s*false`).test(outerBody);
 
-    // visible = false 로 명시된 컨트롤은 화면에 노출되지 않으므로 항목에서 제외
-    if (new RegExp(`${varName}\\.visible\\s*=\\s*false\\b`).test(outerBody)) continue;
+    // visible 최종값이 false 인 컨트롤은 화면에 노출되지 않으므로 항목에서 제외
+    if (!isControlVisibleInLayout(fullContent, controlId)) continue;
 
     // CheckBox: value-change 핸들러명과 trueValue 추출 (조회 기준 전환 토글 분석용)
     let valueChangeHandler: string | undefined;

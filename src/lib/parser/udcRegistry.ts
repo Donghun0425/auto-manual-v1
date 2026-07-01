@@ -18,7 +18,7 @@ export interface UdcInfo {
 
 /** UDC 단축명 → UdcInfo 맵 */
 export const UDC_REGISTRY: Record<string, UdcInfo> = {
-  'AacAcntgComnt': {"qualifiedName":"udc.admin.AacAcntgComnt","description":"회계 공통 컨트롤","labelFns":["setObjectLabel","setAcntgYrLabel","setAcntgUnitCdLabel","setDeptCdLabel","setBizCdLabel","setBplcCdLabel","setBalcSeLabel","setObjectLabelWidth","setAcntgYrLabelWidth","setAcntgUnitCdLabelWidth","setDeptCdLabelWidth","setBizCdLabelWidth","setBplcCdLabelWidth","setBalcSeLabelWidth"],"defaultLabels":{"acntgUnitCdLabel":"회계단위","bplcCdLabel":"세무사업장"}},
+  'AacAcntgComnt': {"qualifiedName":"udc.admin.AacAcntgComnt","description":"회계 공통 컨트롤","labelFns":["setObjectLabel","setAcntgYrLabel","setAcntgUnitCdLabel","setDeptCdLabel","setBizCdLabel","setBplcCdLabel","setBalcSeLabel","setObjectLabelWidth","setAcntgYrLabelWidth","setAcntgUnitCdLabelWidth","setDeptCdLabelWidth","setBizCdLabelWidth","setBplcCdLabelWidth","setBalcSeLabelWidth"],"defaultLabels":{"acntgYrLabel":"회계년도","acntgUnitCdLabel":"회계단위","bplcCdLabel":"세무사업장"}},
   'AacCnptComnt': {"qualifiedName":"udc.admin.AacCnptComnt","description":"거래처 컴포넌트","labelFns":["setLabel"],"defaultLabels":{}},
   'AacGeoraecheoComp': {"qualifiedName":"udc.admin.AacGeoraecheoComp","description":"거래처 컴포넌트","labelFns":["setLabel"],"defaultLabels":{}},
   'AasPummokComp': {"qualifiedName":"udc.admin.AasPummokComp","description":"품목검색컨포넌트","labelFns":["setLabel"],"defaultLabels":{}},

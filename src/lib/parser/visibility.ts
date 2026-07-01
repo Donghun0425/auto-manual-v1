@@ -17,8 +17,7 @@ function escapeRegex(str: string): string {
 }
 
 /**
- * 주어진 내용(content) 안에서 controlId 컨트롤의 visible 속성이
- * false 로 명시되어 있는지 검사한다.
+ * 주어진 내용(content) 안에서 controlId 컨트롤의 visible 속성 최종값을 검사한다.
  *
  * @param content   컨트롤 선언이 포함된 소스(전체 본문 또는 컨테이너 본문)
  * @param controlId 컨트롤 ID (예: "BTN_FILEUPLOAD01")
@@ -33,11 +32,38 @@ export function isControlVisibleInLayout(content: string, controlId: string): bo
   if (!m) return true; // 선언을 찾지 못하면 기본 노출로 간주
 
   const varName = m[1];
+  const localAssignments: Array<{ visible: boolean; position: number }> = [];
+
   // 선언 이후 ~ 해당 변수의 container.addChild 호출 직전까지를 속성 설정 영역으로 본다.
   // (다음 컨트롤의 visible 속성을 잘못 잡는 것을 방지)
   const after = content.slice(m.index + m[0].length);
   const addChildM = new RegExp(`container\\.addChild\\(\\s*${varName}\\b`).exec(after);
   const scope = addChildM ? after.slice(0, addChildM.index) : after.slice(0, 2000);
+  const localRe = new RegExp(`${varName}\\.visible\\s*=\\s*(false|true)\\b`, "g");
+  let localMatch: RegExpExecArray | null;
+  while ((localMatch = localRe.exec(scope)) !== null) {
+    localAssignments.push({
+      visible: localMatch[1] === "true",
+      position: m.index + m[0].length + localMatch.index,
+    });
+  }
 
-  return !new RegExp(`${varName}\\.visible\\s*=\\s*false\\b`).test(scope);
+  const lookupAssignments: Array<{ visible: boolean; position: number }> = [];
+  const lookupRe = new RegExp(`app\\.lookup\\("${idEsc}"\\)\\.visible\\s*=\\s*(false|true)\\b`, "g");
+  let lookupMatch: RegExpExecArray | null;
+  while ((lookupMatch = lookupRe.exec(content)) !== null) {
+    lookupAssignments.push({
+      visible: lookupMatch[1] === "true",
+      position: lookupMatch.index,
+    });
+  }
+
+  if (lookupAssignments.length > 0) {
+    lookupAssignments.sort((a, b) => a.position - b.position);
+    return lookupAssignments[lookupAssignments.length - 1].visible;
+  }
+
+  if (localAssignments.length === 0) return true;
+  localAssignments.sort((a, b) => a.position - b.position);
+  return localAssignments[localAssignments.length - 1].visible;
 }

@@ -5,9 +5,9 @@
  * - 그리드 옵션 (체크박스, 행번호, 상태, 정렬) 추출
  * - 그리드 헤더/detail 컬럼 정보 추출
  */
-import { GridInfo, GridColumnInfo } from '@/types';
-import { normalizeLabel } from '@/lib/utils';
-import { isControlVisibleInLayout } from './visibility';
+import type { GridInfo, GridColumnInfo } from '@/types';
+import { normalizeLabel } from '../utils.ts';
+import { isControlVisibleInLayout } from './visibility.ts';
 
 /** 정규식 특수문자 이스케이프 */
 function escapeRegex(str: string): string {
@@ -58,23 +58,25 @@ function parseGridTitleMap(content: string): Map<string, string> {
     const body = extractContainerBody(content, gm.index);
     if (!body) continue;
 
-    // body 내 PatisTitleBar title 추출
-    const tbM = /new\s+udc\.common\.PatisTitleBar\("[^"]+"\)/.exec(body);
-    if (!tbM) continue;
-    const afterTb = body.slice(tbM.index, tbM.index + 600);
-    const titleM = /\.title\s*=\s*"([^"]+)"/.exec(afterTb);
-    if (!titleM) continue;
-    const title = titleM[1];
+    const tbRe = /var\s+\w+\s*=\s*(?:linker\.\w+\s*=\s*)?new\s+udc\.common\.PatisTitleBar\("(CT_GRIDTITLE\d+)"\)/g;
+    let tbM: RegExpExecArray | null;
+    while ((tbM = tbRe.exec(body)) !== null) {
+      const nextTbIndex = body.slice(tbRe.lastIndex).search(/new\s+udc\.common\.PatisTitleBar\("/);
+      const titleScopeEnd = nextTbIndex >= 0 ? tbRe.lastIndex + nextTbIndex : body.length;
+      const afterTb = body.slice(tbM.index, Math.min(titleScopeEnd, tbM.index + 1200));
+      const titleM = /\.title\s*=\s*"([^"]+)"/.exec(afterTb);
+      if (!titleM) continue;
+      const title = titleM[1];
 
-    // body 내 app.lookup("DG_...") 로 그리드 ID 탐색
-    const lookupM = /app\.lookup\("(DG_[^"]+)"\)/.exec(body);
-    if (lookupM) {
-      titleMap.set(lookupM[1], title);
-      continue;
+      const lookupM = /app\.lookup\("(DG_[^"]+)"\)/.exec(afterTb);
+      if (lookupM) {
+        titleMap.set(lookupM[1], title);
+        continue;
+      }
+
+      const gridDeclM = /new\s+cpr\.controls\.Grid\("(DG_[^"]+)"\)/.exec(afterTb);
+      if (gridDeclM) titleMap.set(gridDeclM[1], title);
     }
-    // app.lookup 없으면 new cpr.controls.Grid("DG_...") 탐색
-    const gridDeclM = /new\s+cpr\.controls\.Grid\("(DG_[^"]+)"\)/.exec(body);
-    if (gridDeclM) titleMap.set(gridDeclM[1], title);
   }
 
   // ── 전략 2: CT_GRIDTITLE{N} varName + varName.setGrid / .target 바인딩 ───────
@@ -120,36 +122,115 @@ function parseGridTitleMap(content: string): Map<string, string> {
   return titleMap;
 }
 
+interface HeaderEntry {
+  id: number;
+  rowIndex: number;
+  colIndex: number;
+  rowSpan: number;
+  colSpan: number;
+  text: string;
+}
+
+interface HeaderCellInfo {
+  text: string;
+  terminalEntryId: number;
+  isMergedLeaf: boolean;
+}
+
+type HeaderCellMap = Map<number, HeaderCellInfo>;
+
+function parseConstraintNumber(constraint: string, key: string, fallback: number): number {
+  const match = new RegExp(`"${key}"\\s*:\\s*(\\d+)`).exec(constraint);
+  return match ? parseInt(match[1], 10) : fallback;
+}
+
+/** PatisUtils.isNullThen(..., "DEFAULT") 에서 변수의 기본값을 찾는다. */
+function findVariableDefault(content: string, variableName: string): string {
+  const assignmentRe = new RegExp(
+    `${escapeRegex(variableName)}\\s*=\\s*PatisUtils\\.isNullThen\\(`,
+    'g',
+  );
+  let match: RegExpExecArray | null;
+
+  while ((match = assignmentRe.exec(content)) !== null) {
+    const statementEnd = content.indexOf(');', match.index);
+    if (statementEnd < 0 || statementEnd - match.index > 1000) continue;
+
+    const statement = content.slice(match.index, statementEnd + 2);
+    const defaultMatch = /,\s*"((?:[^"\\]|\\.)*)"\s*\);$/.exec(statement);
+    if (defaultMatch) return cleanHeaderText(defaultMatch[1]);
+  }
+
+  return '';
+}
+
+/**
+ * 빈 헤더 안의 Output 컨트롤에 런타임으로 넣는 표시값을 해석한다.
+ * 예: g_menuSe1의 기본값 AAC → D_TASK_SE_NM.putValue("회계")
+ */
+function resolveHeaderControlText(content: string, cellBody: string): string {
+  const directValueMatch = /\w+\.(?:value|text)\s*=\s*"((?:[^"\\]|\\.)*)"/.exec(cellBody);
+  if (directValueMatch) {
+    const directValue = cleanHeaderText(directValueMatch[1]);
+    if (directValue) return directValue;
+  }
+
+  const controlMatch = /new\s+cpr\.controls\.Output\("([^"]+)"\)/.exec(cellBody);
+  if (!controlMatch) return '';
+
+  const controlId = controlMatch[1];
+  const escapedControlId = escapeRegex(controlId);
+  const conditionalValueRe = new RegExp(
+    `if\\s*\\(\\s*(\\w+)\\s*={2,3}\\s*"([^"]+)"\\s*\\)\\s*\\{?[\\s\\S]{0,300}?` +
+      `app\\.lookup\\("${escapedControlId}"\\)\\.putValue\\(\\s*"((?:[^"\\\\]|\\\\.)*)"\\s*\\)`,
+    'g',
+  );
+  const conditionalValues: Array<{ variableName: string; conditionValue: string; text: string }> = [];
+  let conditionalMatch: RegExpExecArray | null;
+
+  while ((conditionalMatch = conditionalValueRe.exec(content)) !== null) {
+    conditionalValues.push({
+      variableName: conditionalMatch[1],
+      conditionValue: conditionalMatch[2],
+      text: cleanHeaderText(conditionalMatch[3]),
+    });
+  }
+
+  for (const value of conditionalValues) {
+    const defaultValue = findVariableDefault(content, value.variableName);
+    if (defaultValue && defaultValue === value.conditionValue) return value.text;
+  }
+
+  const putValueRe = new RegExp(
+    `app\\.lookup\\("${escapedControlId}"\\)\\.putValue\\(\\s*"((?:[^"\\\\]|\\\\.)*)"\\s*\\)`,
+    'g',
+  );
+  const values = new Set<string>();
+  let putValueMatch: RegExpExecArray | null;
+  while ((putValueMatch = putValueRe.exec(content)) !== null) {
+    const value = cleanHeaderText(putValueMatch[1]);
+    if (value) values.add(value);
+  }
+
+  return values.size === 1 ? Array.from(values)[0] : '';
+}
+
 /**
  * 헤더 섹션에서 colIndex → 헤더텍스트 맵 추출
- *
- * [개선] configurator 블록 범위 기반 파싱 + colSpan 전파
- * - 각 "constraint"+"configurator" 블록을 분리, 블록 내에서만 cell.text 탐색
- * - colSpan이 있는 그룹 헤더(rowIndex=0)는 span 범위 내 모든 colIndex에 전파
- * - rowIndex >= 1의 세부 헤더가 그룹 헤더를 덮어씀 (last write wins)
+ * - rowSpan/colSpan을 매트릭스로 펼쳐 다단 병합 헤더 경로를 구성한다.
+ * - 동일 병합 셀이 여러 행에 전파된 경우에는 한 번만 사용한다.
  */
-function parseHeaderCells(headerSection: string): Map<number, string> {
-  // 1단계: 모든 블록 수집
+function parseHeaderCells(headerSection: string, content: string): HeaderCellMap {
   const constraintRe =
     /"constraint"\s*:\s*\{([^}]+)\}\s*,\s*"configurator"\s*:\s*function\s*\(cell\)\s*\{/g;
   let cMatch: RegExpExecArray | null;
 
-  // 그룹 헤더 (rowIndex=0, colSpan 포함) 및 세부 헤더 (rowIndex>=1) 분리 저장
-  const groupEntries: Array<{ colIndex: number; colSpan: number; text: string }> = [];
-  const subEntries: Array<{ colIndex: number; text: string }> = [];
+  const entries: HeaderEntry[] = [];
 
   while ((cMatch = constraintRe.exec(headerSection)) !== null) {
     const constraintStr = cMatch[1];
-
-    const ciM = /"colIndex":\s*(\d+)/.exec(constraintStr);
-    if (!ciM) continue;
-    const colIndex = parseInt(ciM[1]);
-
-    const riM = /"rowIndex":\s*(\d+)/.exec(constraintStr);
-    const rowIndex = riM ? parseInt(riM[1]) : 0;
-
-    const spanM = /"colSpan":\s*(\d+)/.exec(constraintStr);
-    const colSpan = spanM ? parseInt(spanM[1]) : 1;
+    const colIndex = parseConstraintNumber(constraintStr, "colIndex", -1);
+    if (colIndex < 0) continue;
 
     // configurator 본문: 다음 "constraint" 직전까지
     const bodyStart = cMatch.index + cMatch[0].length;
@@ -158,37 +239,71 @@ function parseHeaderCells(headerSection: string): Map<number, string> {
     const body = headerSection.slice(bodyStart, Math.min(bodyEnd, bodyStart + 2000));
 
     const textM = /cell\.text\s*=\s*"((?:[^"\\]|\\.)*)"/.exec(body);
-    if (!textM) continue;
-    const text = cleanHeaderText(textM[1]);
-    if (!text) continue; // 빈 문자열 (설계자가 의도적으로 비운 경우) 스킵
+    const staticText = textM ? cleanHeaderText(textM[1]) : '';
+    const text = staticText || resolveHeaderControlText(content, body);
+    if (!text) continue;
 
-    if (rowIndex === 0) {
-      groupEntries.push({ colIndex, colSpan, text });
-    } else {
-      subEntries.push({ colIndex, text });
+    entries.push({
+      id: entries.length,
+      rowIndex: parseConstraintNumber(constraintStr, "rowIndex", 0),
+      colIndex,
+      rowSpan: parseConstraintNumber(constraintStr, "rowSpan", 1),
+      colSpan: parseConstraintNumber(constraintStr, "colSpan", 1),
+      text,
+    });
+  }
+
+  const headerCells: HeaderCellMap = new Map();
+  const matrix = new Map<number, Map<number, { id: number; text: string }>>();
+  const colIndexes = new Set<number>();
+  const rowIndexes = new Set<number>();
+
+  for (const entry of entries) {
+    for (let row = entry.rowIndex; row < entry.rowIndex + entry.rowSpan; row++) {
+      rowIndexes.add(row);
+      let rowMap = matrix.get(row);
+      if (!rowMap) {
+        rowMap = new Map();
+        matrix.set(row, rowMap);
+      }
+      for (let col = entry.colIndex; col < entry.colIndex + entry.colSpan; col++) {
+        colIndexes.add(col);
+        rowMap.set(col, { id: entry.id, text: entry.text });
+      }
     }
   }
 
-  const headerCells = new Map<number, string>();
+  const sortedRows = Array.from(rowIndexes).sort((a, b) => a - b);
+  for (const col of Array.from(colIndexes).sort((a, b) => a - b)) {
+    const parts: string[] = [];
+    const usedEntryIds = new Set<number>();
+    let terminalEntry: HeaderEntry | undefined;
 
-// 2단계: 그룹 헤더를 colIndex별로 임시 저장
-const groupTextMap = new Map<number, string>();
-for (const { colIndex, colSpan, text } of groupEntries) {
-  for (let ci = colIndex; ci < colIndex + colSpan; ci++) {
-    groupTextMap.set(ci, text);
+    for (const row of sortedRows) {
+      const cell = matrix.get(row)?.get(col);
+      if (!cell || usedEntryIds.has(cell.id)) continue;
+      parts.push(cell.text);
+      usedEntryIds.add(cell.id);
+      terminalEntry = entries[cell.id];
+    }
+
+    if (parts.length > 0 && terminalEntry) {
+      headerCells.set(col, {
+        text: parts.join("-"),
+        terminalEntryId: terminalEntry.id,
+        isMergedLeaf: false,
+      });
+    }
   }
-}
 
-// 3단계: 세부 헤더가 있으면 "그룹명-세부명", 없으면 그룹명만
-for (const { colIndex, text } of subEntries) {
-  const groupText = groupTextMap.get(colIndex);
-  headerCells.set(colIndex, groupText ? `${groupText}-${text}` : text);
-}
+  for (const header of headerCells.values()) {
+    const entry = entries[header.terminalEntryId];
+    header.isMergedLeaf = entry.colSpan > 1 && Array.from(
+      { length: entry.colSpan },
+      (_, offset) => entry.colIndex + offset,
+    ).every((col) => headerCells.get(col)?.terminalEntryId === entry.id);
+  }
 
-// 세부 헤더가 없는 colIndex는 그룹명 그대로
-for (const [ci, text] of groupTextMap) {
-  if (!headerCells.has(ci)) headerCells.set(ci, text);
-}
   return headerCells;
 }
 
@@ -200,9 +315,13 @@ for (const [ci, text] of groupTextMap) {
  */
 function parseDetailCells(
   detailSection: string,
-  headerCells: Map<number, string>
+  headerCells: HeaderCellMap
 ): GridColumnInfo[] {
-  const columns: GridColumnInfo[] = [];
+  const columns: Array<GridColumnInfo & {
+    colIndex: number;
+    headerGroupId?: number;
+    isMergedHeaderLeaf: boolean;
+  }> = [];
   const constraintRe =
     /"constraint"\s*:\s*\{([^}]+)\}\s*,\s*"configurator"\s*:\s*function\s*\(cell\)\s*\{/g;
   let cMatch: RegExpExecArray | null;
@@ -254,10 +373,14 @@ function parseDetailCells(
       purpose = '입력';
     }
 
-    const headerText = headerCells.get(colIndex) ?? columnName;
+    const header = headerCells.get(colIndex);
+    const headerText = header?.text ?? columnName;
     if (!headerText && !columnName) continue;
 
     columns.push({
+      colIndex,
+      headerGroupId: header?.terminalEntryId,
+      isMergedHeaderLeaf: header?.isMergedLeaf ?? false,
       columnName,
       headerText: headerText || columnName,
       description: '',
@@ -266,7 +389,57 @@ function parseDetailCells(
     });
   }
 
-  return columns;
+  const sortedColumns = columns.sort((a, b) => a.colIndex - b.colIndex);
+  const collapsedColumns: typeof sortedColumns = [];
+
+  for (let index = 0; index < sortedColumns.length;) {
+    const first = sortedColumns[index];
+    if (!first.isMergedHeaderLeaf || first.headerGroupId === undefined) {
+      collapsedColumns.push(first);
+      index++;
+      continue;
+    }
+
+    let groupEnd = index + 1;
+    while (
+      groupEnd < sortedColumns.length &&
+      sortedColumns[groupEnd].headerGroupId === first.headerGroupId &&
+      sortedColumns[groupEnd].headerText === first.headerText
+    ) {
+      groupEnd++;
+    }
+    const group = sortedColumns.slice(index, groupEnd);
+    if (group.length <= 1) {
+      collapsedColumns.push(first);
+      index++;
+      continue;
+    }
+
+    const boundColumns = group.filter((column) => column.columnName);
+    const meaningfulColumns = boundColumns.length > 0 ? boundColumns : group;
+    const columnNames = Array.from(new Set(meaningfulColumns.map((column) => column.columnName).filter(Boolean)));
+    const controlTypes = Array.from(new Set(meaningfulColumns.map((column) => column.controlType).filter(Boolean)));
+    const purposes = new Set(meaningfulColumns.map((column) => column.purpose));
+    const descriptions = Array.from(new Set(group.map((column) => column.description).filter(Boolean)));
+
+    collapsedColumns.push({
+      ...first,
+      columnName: columnNames.join(', '),
+      controlType: controlTypes.join(' / ') || '-',
+      purpose: purposes.size === 1 ? meaningfulColumns[0].purpose : '표시 또는 입력',
+      description: descriptions.join(' '),
+    });
+
+    index = groupEnd;
+  }
+
+  return collapsedColumns.map((column) => ({
+    columnName: column.columnName,
+    headerText: column.headerText,
+    description: column.description,
+    controlType: column.controlType,
+    purpose: column.purpose,
+  }));
 }
 
 /**
@@ -293,7 +466,7 @@ function parseGridColumns(content: string, gridId: string): GridColumnInfo[] {
   const headerSection = gridSection.slice(headerStart, detailStart);
   const detailSection = gridSection.slice(detailStart);
 
-  const headerCells = parseHeaderCells(headerSection);
+  const headerCells = parseHeaderCells(headerSection, content);
   return parseDetailCells(detailSection, headerCells);
 }
 

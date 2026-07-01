@@ -3,16 +3,16 @@
  * - new cpr.controls.Container("INFOGROUP\d+") + style.setClasses(["cl-form-group"])
  *   패턴으로 세부정보 입력 그룹을 탐지한다.
  * - CT_INFOTITLE{N} PatisTitleBar 의 title 속성을 그룹 제목으로 사용한다.
- * - 그룹 IIFE 내부의 T_D_ Output(항목명) + D_ 컨트롤(타입) 쌍을 추출한다.
+ * - 그룹 IIFE 내부의 T_* Output(항목명) + 대응 컨트롤(타입) 쌍을 추출한다.
  */
-import { ConditionControlInfo, InfoGroupInfo } from '@/types';
-import { normalizeLabel } from '@/lib/utils';
-import { isControlVisibleInLayout } from './visibility';
+import type { ConditionControlInfo, InfoGroupInfo } from '@/types';
+import { normalizeLabel } from '../utils.ts';
+import { isControlVisibleInLayout } from './visibility.ts';
 
 /** 입력 컨트롤로 간주하는 타입 집합 */
 const INPUT_TYPES = new Set([
   'InputBox', 'TextArea', 'ComboBox', 'CheckBox',
-  'DatePicker', 'NumberInput', 'SpinBox', 'RadioGroup',
+  'DatePicker', 'NumberInput', 'SpinBox', 'RadioGroup', 'RadioButton',
   'PatisCombo', 'PatisDatePicker',
 ]);
 
@@ -64,8 +64,8 @@ export function parseInfoGroups(content: string): InfoGroupInfo[] {
   while ((tm = titleDeclRe.exec(content)) !== null) {
     const tvName = tm[1];
     const tNum = tm[2];
-    // 선언 이후 400자 이내에서 varName.title = "..." 탐색
-    const after = content.slice(tm.index, tm.index + 400);
+    // 선언 이후 800자 이내에서 varName.title = "..." 탐색
+    const after = content.slice(tm.index, tm.index + 800);
     const titleM = new RegExp(`${tvName}\\.title\\s*=\\s*"([^"]+)"`).exec(after);
     if (titleM) titleMap.set(tNum, titleM[1]);
   }
@@ -86,10 +86,10 @@ export function parseInfoGroups(content: string): InfoGroupInfo[] {
     const body = extractFunctionBody(content, gm.index);
     if (!body) continue;
 
-    // ── Step 4: T_D_ Output 컨트롤 → 항목명 맵 ──────────────────────────
-    // { oVarName → { controlId: "T_D_XXX", labelText: "항목명" } }
+    // ── Step 4: T_* Output 컨트롤 → 항목명 맵 ──────────────────────────
+    // { oVarName → { controlId: "T_S_XXX", labelText: "항목명" } }
     const outputMap = new Map<string, { controlId: string; labelText: string }>();
-    const outputDeclRe = /var\s+(\w+)\s*=\s*new\s+cpr\.controls\.Output\("(T_D_[^"]+)"\)/g;
+    const outputDeclRe = /var\s+(\w+)\s*=\s*new\s+cpr\.controls\.Output\("(T_[^"]+)"\)/g;
     let om: RegExpExecArray | null;
     while ((om = outputDeclRe.exec(body)) !== null) {
       const oVarName = om[1];
@@ -105,24 +105,26 @@ export function parseInfoGroups(content: string): InfoGroupInfo[] {
     const controlTypeMap = new Map<string, string>();
 
     // cpr.controls.TYPE
-    const cprDeclRe = /var\s+\w+\s*=\s*new\s+cpr\.controls\.(\w+)\("(D_[^"]+)"\)/g;
+    const cprDeclRe = /var\s+\w+\s*=\s*new\s+cpr\.controls\.(\w+)\("([^"]+)"\)/g;
     let cm: RegExpExecArray | null;
     while ((cm = cprDeclRe.exec(body)) !== null) {
+      if (cm[2].startsWith('T_')) continue;
       controlTypeMap.set(cm[2], cm[1]);
     }
 
     // udc.*.TYPE (UDC 컨트롤)
-    const udcDeclRe = /var\s+\w+\s*=\s*(?:linker\.\w+\s*=\s*)?new\s+(udc\.[\w.]+)\("(D_[^"]+)"\)/g;
+    const udcDeclRe = /var\s+\w+\s*=\s*(?:linker\.\w+\s*=\s*)?new\s+(udc\.[\w.]+)\("([^"]+)"\)/g;
     let udcm: RegExpExecArray | null;
     while ((udcm = udcDeclRe.exec(body)) !== null) {
+      if (udcm[2].startsWith('T_')) continue;
       controlTypeMap.set(udcm[2], shortType(udcm[1]));
     }
 
     // ── Step 6: controls 목록 구성 ──────────────────────────────────────
     const controls: ConditionControlInfo[] = [];
     for (const [, { controlId, labelText }] of outputMap) {
-      // T_D_ABNM_L3 → D_ABNM_L3 (앞의 "T_" 제거)
-      const dataCtrlId = controlId.slice(2);
+      // T_D_ABNM_L3 → D_ABNM_L3, T_S_STUNO → S_STUNO (앞의 "T_" 제거)
+      const dataCtrlId = controlId.replace(/^T_/, '');
 
       // 의미없는 항목 제거
       // 1) 구분자 라벨 (-,~,/ 등)
