@@ -3,8 +3,9 @@
  * - PatisMenuTitleBar (Form_inq~, Form_new~, Form_save~, Form_del~, Form_ext~)
  * - PatisTitleBar (TitleForm_inq~, TitleForm_new~, TitleForm_save~, TitleForm_del~, TitleForm_ext~)
  */
-import { CrudInfo, CrudOperationLogic, CrudOperationType, ExtButtonInfo, ExtButtonLogic } from '@/types';
-import { parseRequiredFields } from './validationParser';
+import type { CrudInfo, CrudOperationLogic, CrudOperationType, ExtButtonInfo, ExtButtonLogic } from '@/types';
+import { normalizeFrameworkButtonLabel } from '../button-label.ts';
+import { parseRequiredFields } from './validationParser.ts';
 
 /** 저장 버튼 프레임워크 기본 가드 메시지 (PatisMenuTitleBar 내장 동작) */
 const DEFAULT_SAVE_GUARD_MSG = '저장할 내역이 없습니다.';
@@ -68,7 +69,7 @@ export function parseMenuTitleBarCrud(content: string): CrudInfo {
   for (const match of extMatches) {
     const btnIndex = parseInt(match[1]);
     const btnName = extractExtButtonName(content, `Form_ext${btnIndex}Click`);
-    const resolvedName = btnName || `추가버튼${btnIndex}`;
+    const resolvedName = normalizeFrameworkButtonLabel(btnName || `추가버튼${btnIndex}`);
     const body = extractFunctionBody(content, `Form_ext${btnIndex}Click`);
     const popupUrl = extractPopupUrl(body) ?? undefined;
     const desc = analyzeBtnFunctionBody(body, resolvedName);
@@ -676,9 +677,10 @@ export function parseTitleBarCrud(content: string): CrudInfo[] {
       const fn   = `TitleForm_ext${idx}Click`;
       const body = extractFunctionBody(content, fn);
       const popupUrl = extractPopupUrl(body) ?? undefined;
-      const desc = analyzeBtnFunctionBody(body, name);
+      const resolvedName = normalizeFrameworkButtonLabel(name);
+      const desc = analyzeBtnFunctionBody(body, resolvedName);
       const logic = analyzeExtButtonLogic(content, fn);
-      extButtons.push({ name, functionName: fn, index: idx, ...(popupUrl ? { popupUrl } : {}), ...(desc ? { description: desc } : {}), ...(logic ? { logic } : {}) });
+      extButtons.push({ name: resolvedName, functionName: fn, index: idx, ...(popupUrl ? { popupUrl } : {}), ...(desc ? { description: desc } : {}), ...(logic ? { logic } : {}) });
     };
 
     // 형식 B: varName.initAddButton(index, "label")
@@ -835,12 +837,13 @@ function buildGlobalTitleExtButtons(content: string): ExtButtonInfo[] {
   for (const match of content.matchAll(/function\s+TitleForm_ext(\d+)Click\s*\(/g)) {
     const btnIndex = parseInt(match[1]);
     const btnName  = extractExtButtonName(content, `TitleForm_ext${btnIndex}Click`);
+    const resolvedName = normalizeFrameworkButtonLabel(btnName || `타이틀바 추가버튼${btnIndex}`);
     const body     = extractFunctionBody(content, `TitleForm_ext${btnIndex}Click`);
     const popupUrl = extractPopupUrl(body) ?? undefined;
-    const desc     = btnName ? analyzeBtnFunctionBody(body, btnName) : null;
+    const desc     = btnName ? analyzeBtnFunctionBody(body, resolvedName) : null;
     const logic    = analyzeExtButtonLogic(content, `TitleForm_ext${btnIndex}Click`);
     buttons.push({
-      name:         btnName || `타이틀바 추가버튼${btnIndex}`,
+      name:         resolvedName,
       functionName: `TitleForm_ext${btnIndex}Click`,
       index:        btnIndex,
       ...(popupUrl ? { popupUrl } : {}),

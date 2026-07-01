@@ -3,6 +3,7 @@
  * CLX 파싱 결과를 바탕으로 AI에 전달할 프롬프트를 구성
  */
 import type { AiMessage, ClxParseResult, GridColumnInfo, ConditionControlInfo, CrudInfo, ExtButtonInfo } from "@/types";
+import { getUsageSectionTitles } from "./usage-section-order.ts";
 
 /** 시스템 프롬프트 (공통) */
 const SYSTEM_PROMPT = `당신은 IT 비전문가(학생, 일반 학부모, 교직원 등)가 복잡한 시스템 용어를 쉽게 이해할 수 있도록 돕는 전문 UX 라이터이자 데이터 해설가입니다.
@@ -174,6 +175,7 @@ export function buildButtonDescriptionPrompt(
 ${buttonList}
 
 각 버튼에 대해 정확히 아래 JSON 배열 형식으로 응답하세요. 다른 텍스트는 포함하지 마세요:
+name은 버튼 목록의 버튼명을 축약하거나 변경하지 말고 그대로 복사하세요.
 [{"name": "버튼명", "description": "Step1. '버튼명' 버튼을 클릭하여 ~합니다. (40자 이내)"}]`,
     },
   ];
@@ -433,6 +435,7 @@ export function buildUsagePrompt(parseResult: ClxParseResult, udcHint = ""): AiM
   const contextParts: string[] = [
     `화면명: ${parseResult.overview.programName}`,
     `제공 기능(상단 메뉴 타이틀바): ${features.join(", ")}`,
+    `기능 섹션 출력 순서:\n${getUsageSectionTitles(parseResult).map((title, index) => `  ${index + 1}. ${title}`).join("\n")}`,
   ];
   if (titleBarFeatureLines.length > 0) {
     contextParts.push(`제공 기능(그리드 타이틀바):\n${titleBarFeatureLines.join("\n")}`);
@@ -470,6 +473,8 @@ Step2. 설명
 
 작성 규칙:
 - {B}...{/B} 안의 기능 제목에는 '기능'이라는 단어를 포함하지 마세요. 예: {B}조회{/B}, {B}저장{/B}
+- 기능 섹션은 '기능 섹션 출력 순서'에 나열된 순서를 반드시 지키세요. 작성자 업무 힌트는 각 섹션 내부의 Step 구성에만 반영하고 섹션 순서를 바꾸지 마세요
+- 기능 소제목은 '기능 섹션 출력 순서'의 이름을 축약하거나 변경하지 말고 그대로 사용하세요
 - 각 기능당 Step은 4~6개로 작성하세요 (기능 복잡도에 따라 조절)
 - 각 Step은 단순 클릭 안내만 쓰지 말고, 업무 목적·사용자 행동·확인해야 할 결과 중 최소 2가지를 포함하세요
 - 각 Step은 이전 Step의 결과를 기반으로 다음 Step이 자연스럽게 이어지도록 연결성을 가지게 작성하세요. 단순 나열 금지

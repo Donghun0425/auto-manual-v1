@@ -24,7 +24,12 @@ import {
 import { findDictionaryByTerms, upsertDictionary } from "@/lib/supabase/queries/dictionary";
 import { enrichUdcContext, formatUdcHint } from "./enrich-udc-context";
 import { applyUdcSynthesis } from "./synthesize-udc-items";
-import { removeDuplicateUdcUsageSections } from "./udc-usage-dedupe";
+import {
+  removeDuplicateTitleBarUsageSections,
+  removeDuplicateUdcUsageSections,
+} from "./udc-usage-dedupe";
+import { prepareUsageSections } from "./usage-section-order.ts";
+import { findButtonByLabel } from "@/lib/button-label";
 
 export interface GenerateFileOptions {
   filePath: string;
@@ -334,7 +339,7 @@ async function enrichButtonDescriptions(
   try {
     const parsed = JSON.parse(text) as { name: string; description: string }[];
     for (const item of parsed) {
-      const btn = needDesc.find((b) => b.name === item.name);
+      const btn = findButtonByLabel(needDesc, item.name);
       if (btn && item.description) btn.description = item.description;
     }
   } catch {
@@ -433,23 +438,9 @@ async function enrichUsageText(
       }
     }
 
-    // 후처리 2-1: PatisTitleBar ext 버튼이 "{B}타이틀바 - 버튼명{/B}" 형식으로 이미 존재하는데
-    // AI가 추가로 "{B}버튼명{/B}" 단독 섹션을 생성한 경우 제거
-    // (프롬프트에 extraButtons와 titleBars 양쪽에 동일 버튼이 노출되었을 때의 AI 중복 출력 방지)
-    for (const tb of parseResult.usage.titleBars) {
-      const tbLabel = (tb.title || "상세 정보").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      for (const btn of tb.extButtons) {
-        const btnName = btn.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-        const hasTbFormat = new RegExp(`\\{B\\}${tbLabel}\\s*[-–]\\s*${btnName}\\s*\\{/B\\}`).test(text);
-        if (hasTbFormat) {
-          // 단독 "{B}버튼명{/B}" 섹션(+ 후속 Step 라인들) 제거
-          text = text.replace(
-            new RegExp(`\\{B\\}${btnName}\\{/B\\}\\n(?:Step\\d+\\.[^\\n]*\\n?)*`, "g"),
-            ""
-          );
-        }
-      }
-    }
+    // 후처리 2-1: 타이틀바 버튼의 단독 중복 섹션을 섹션 단위로 제거한다.
+    // 메뉴 CRUD/확장 버튼과 이름만 같은 정상 섹션은 보존한다.
+    text = removeDuplicateTitleBarUsageSections(text, parseResult);
 
     // 후처리 2-2: UDC 버튼이 실제 소유 타이틀바와 다른 타이틀바에 중복 생성된 경우 제거
     text = removeDuplicateUdcUsageSections(text, parseResult);
@@ -457,25 +448,8 @@ async function enrichUsageText(
     parseResult.aiUsageText = text;
   }
 
-  // 후처리 3: features에 있지만 AI가 생성하지 않은 extraButtons를 정적 템플릿으로 보충
   if (parseResult.aiUsageText) {
-    const generatedTitles = new Set(
-      [...(parseResult.aiUsageText.matchAll(/\{B\}([^{]+?)\{\/B\}/g))].map(m => m[1].trim())
-    );
-    const missingButtons = parseResult.usage.extraButtons.filter(
-      btn => !generatedTitles.has(btn.name)
-    );
-    if (missingButtons.length > 0) {
-      const supplement = missingButtons.map(btn => {
-        const desc = btn.description
-          ? btn.description
-          : `Step1. '${btn.name}' 버튼을 클릭한다.\nStep2. 처리 결과를 확인한다.`;
-        return `{B}${btn.name}{/B}\n${desc}`;
-      }).join("\n");
-      parseResult.aiUsageText = parseResult.aiUsageText.trimEnd() + "\n" + supplement;
-    }
-
-    // 후처리 4: AI가 프롬프트를 무시하고 구버전 패턴을 생성한 경우 변환 (안전망)
+    // 후처리 3: AI가 프롬프트를 무시하고 구버전 패턴을 생성한 경우 변환 (안전망)
     // 예) Step2. 개설년도를 입력하지 않은 경우 "개설년도를 입력해주시기 바랍니다." 메시지를 확인합니다.
     //  → Step2. 개설년도를 입력하지 않은 경우 아래와 같은 메시지가 출력됩니다.
     //     {MSG}개설년도를 입력해주시기 바랍니다.{/MSG}
@@ -484,7 +458,7 @@ async function enrichUsageText(
       "$1아래와 같은 메시지가 출력됩니다.\n{MSG}$2{/MSG}"
     );
 
-    // 후처리 5: 동일한 소제목({B}...{/B}) 섹션이 중복 생성된 경우 첫 번째만 유지
+    // 후처리 4: 동일한 소제목({B}...{/B}) 섹션이 중복 생성된 경우 첫 번째만 유지
     // (예: 동일 이름 버튼이 여러 개일 때 AI가 중복 생성하는 경우)
     const usageLines = parseResult.aiUsageText.split("\n");
     const seenSectionTitles = new Set<string>();
@@ -511,7 +485,8 @@ async function enrichUsageText(
       }
       dedupedLines.push(line);
     }
-    parseResult.aiUsageText = dedupedLines.join("\n");
+    // 후처리 5: 누락 버튼을 보충한 뒤 고정 업무 흐름순으로 정렬
+    parseResult.aiUsageText = prepareUsageSections(dedupedLines.join("\n"), parseResult);
   }
 
   return addUsage(usage, response.usage ?? { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 });

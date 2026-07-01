@@ -3,6 +3,7 @@
  * ClxParseResult + LayoutSection[] → 구조화된 Markdown 문서 생성
  */
 import type { ClxParseResult, LayoutSection } from "@/types";
+import { prepareUsageSections } from "../ai/usage-section-order.ts";
 
 export function renderMarkdown(
   parseResult: ClxParseResult,
@@ -151,29 +152,60 @@ function renderUsage(data: ClxParseResult, customTitle?: string): string {
 
   // AI 생성 텍스트가 있으면 {B}...{/B} 파싱하여 Markdown으로 변환
   if (data.aiUsageText) {
-    // pre-pass: 다행(또는 리터럴 \n)에 걸쳐 있는 {MSG}...{/MSG} 블록을
-    //           한 행씩 {MSG}라인{/MSG} 형식으로 정규화
-    const normalizedText = data.aiUsageText.replace(
-      /\{MSG\}([\s\S]*?)\{\/MSG\}/g,
-      (_, inner: string) =>
-        inner.split(/\\n|\n/)
-          .map((l: string) => l.trim())
-          .filter(Boolean)
-          .map((l: string) => `{MSG}${l}{/MSG}`)
-          .join('\n')
-    );
+    const orderedUsageText = prepareUsageSections(data.aiUsageText, data);
+    // {MSG}~{/MSG} 다중 행 블록을 올바르게 렌더링하기 위해
+    // pre-pass 정규화 대신 라인 단위 상태 머신으로 처리한다.
+    // (Step 라인이 MSG 블록 안에 갇혀 msg-box로 변환되는 버그 방지)
+    let inMsgBlock = false;
     const lines: string[] = [`## ${title}\n`];
-    for (const raw of normalizedText.split("\n")) {
+
+    for (const raw of orderedUsageText.split("\n")) {
       const line = raw.trim();
       if (!line) continue;
+
+      // {B}기능명{/B} 패턴 → MSG 모드 해제
       if (/^\{B\}.+\{\/B\}$/.test(line)) {
+        inMsgBlock = false;
         const inner = line.replace(/^\{B\}/, "").replace(/\{\/B\}$/, "");
         lines.push(`\n**${inner}**\n`);
-      } else if (/^Step\d+\./i.test(line)) {
-        // 인라인 {B}...{/B} 태그를 **...** 로 변환
-        const formatted = line.replace(/\{B\}([^{]+?)\{\/B\}/g, "**$1**");
+        continue;
+      }
+
+      // Step\d+. 라인 → MSG 모드 해제 후 step으로 출력 (핵심: MSG 블록 안에 갇힌 Step 복구)
+      if (/^Step\d+\./i.test(line)) {
+        inMsgBlock = false;
+        // {/MSG} 태그 제거 후 포매팅
+        const clean = line.replace(/\{\/MSG\}/g, "").trim();
+        if (!clean) continue;
+        const formatted = clean.replace(/\{B\}([^{]+?)\{\/B\}/g, "**$1**");
         lines.push(`- ${formatted}`);
-      } else if (/^\{MSG\}.+\{\/MSG\}$/.test(line)) {
+        continue;
+      }
+
+      // {MSG} 시작 (한 줄에 {MSG}~{/MSG} 모두 있는 경우는 아래에서 처리)
+      if (/^\{MSG\}/.test(line) && !/\{\/MSG\}$/.test(line)) {
+        inMsgBlock = true;
+        const msg = line.replace(/^\{MSG\}/, "").trim();
+        if (msg) lines.push(`> 💬 **"${msg}"**`);
+        continue;
+      }
+
+      // {/MSG} 종료
+      if (/\{\/MSG\}$/.test(line)) {
+        inMsgBlock = false;
+        const msg = line.replace(/\{\/MSG\}$/, "").replace(/^\{MSG\}/, "").replace(/^"|"$/g, "").trim();
+        if (msg) lines.push(`> 💬 **"${msg}"**`);
+        continue;
+      }
+
+      // MSG 블록 내부의 일반 텍스트
+      if (inMsgBlock) {
+        lines.push(`> 💬 **"${line}"**`);
+        continue;
+      }
+
+      // 한 줄에 {MSG}...{/MSG}가 모두 있는 경우 (기존 동작 유지)
+      if (/^\{MSG\}.+\{\/MSG\}$/.test(line)) {
         const msgInner = line.replace(/^\{MSG\}/, "").replace(/\{\/MSG\}$/, "").replace(/^"|"$/g, "").trim();
         lines.push(`> 💬 **"${msgInner}"**`);
       } else if (/^[*•※⚠]|^주의|^\[주의/.test(line)) {
@@ -184,24 +216,6 @@ function renderUsage(data: ClxParseResult, customTitle?: string): string {
         lines.push(`- ${line}`);
       }
     }
-    // AI 텍스트에서 {B}...{/B} 소제목 집합 추출 (중복 방지)
-    const aiSectionTitles = new Set(
-      [...(data.aiUsageText.matchAll(/\{B\}([^{]+?)\{\/B\}/g))].map(m => m[1].trim())
-    );
-
-    // AI 텍스트에 미포함된 extraButtons 추가
-    for (const btn of data.usage.extraButtons) {
-      if (aiSectionTitles.has(btn.name)) continue;
-      lines.push(`\n**${btn.name}**\n`);
-      const desc = btn.description
-        ?? (btn.name === "닫기" || /close/i.test(btn.functionName)
-          ? "Step1. 현재 화면을 닫는다."
-          : `Step1. '${btn.name}' 버튼을 클릭한다.`);
-      for (const step of desc.split("\n")) {
-        if (step.trim()) lines.push(`- ${step.trim()}`);
-      }
-    }
-
     lines.push("");
     return lines.join("\n");
   }
@@ -230,8 +244,13 @@ function renderUsage(data: ClxParseResult, customTitle?: string): string {
     rows.push(`| ${btn.name} | ${btn.description || `'${btn.name}' 버튼을 클릭합니다.`} |`);
   }
 
+  for (const btn of data.usage.extraButtons) {
+    rows.push(`| ${btn.name} | ${btn.description || `'${btn.name}' 버튼을 클릭합니다.`} |`);
+  }
+
   for (const tb of data.usage.titleBars) {
     const tbName = tb.title || "서브 타이틀바";
+    if (tb.hasNew) rows.push(`| ${tbName} 신규 | ${tbName}에 새 행을 추가하고 필수 항목을 입력한 뒤 저장으로 이어갑니다. |`);
     if (tb.hasSave) rows.push(`| ${tbName} 저장 | ${tbName}에서 신규/수정된 행의 필수값과 중복 여부를 확인한 뒤 저장하고, 목록에 변경 내용이 반영되었는지 확인합니다. |`);
     if (tb.hasDelete) rows.push(`| ${tbName} 삭제 | ${tbName}에서 삭제할 행을 선택하고 삭제 제한 조건을 확인한 뒤 처리하며, 목록에서 해당 행이 제외되었는지 확인합니다. |`);
     for (const btn of tb.extButtons) {
