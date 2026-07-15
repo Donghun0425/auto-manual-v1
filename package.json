@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:udc": "node --experimental-strip-types --test test/udc-label-resolver.test.mjs"
+    "test:udc": "node --experimental-strip-types --test test/udc-label-resolver.test.mjs",
+    "test:button-label": "node --experimental-strip-types --test test/button-label.test.mjs",
+    "test:usage-order": "node --experimental-strip-types --test test/usage-section-order.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.4.1",
