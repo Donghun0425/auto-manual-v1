@@ -32,8 +32,6 @@ function NodeButton({
   icon: React.ReactNode;
   onSelect: (index: number) => void;
 }) {
-  const showFileName = Boolean(label && label !== fileName);
-
   return (
     <button
       type="button"
@@ -51,7 +49,7 @@ function NodeButton({
       </span>
       <div className="min-w-0 flex-1">
         <p className="text-xs font-medium truncate">{label || fileName}</p>
-        {showFileName && <p className="text-[10px] text-muted-foreground truncate">{fileName}</p>}
+        {label && <p className="text-[10px] text-muted-foreground truncate">{fileName}</p>}
         {typeof tokens === "number" && (
           <div className="flex items-center gap-1.5 mt-1">
             <CheckCircle2 className="h-3 w-3 text-green-500 shrink-0" aria-hidden="true" />
@@ -167,7 +165,7 @@ export function FileResultSidebar({ results, groups, selectedIndex, onSelect }: 
                   <NodeButton
                     index={group.mainIndex}
                     fileName={group.mainFileName}
-                    label={group.mainLabel}
+                    label={hasChildren ? group.mainLabel : undefined}
                     tokens={results[group.mainIndex]?.tokenUsage.total_tokens}
                     selected={selectedIndex === group.mainIndex}
                     depth={0}

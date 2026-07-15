@@ -13,7 +13,6 @@ import {
   Layers,
   MousePointer2,
   Package,
-  ClipboardList,
 } from "lucide-react";
 import { ArrowLeft, CornerDownRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -106,72 +105,6 @@ function SimpleTable({ headers, rows }: { headers: string[]; rows: (string | Rea
   );
 }
 
-function splitWorkflow(flowLines: string[]): string[] {
-  return flowLines
-    .flatMap((line) => line.split(/\s*(?:->|→|➜|⇒)\s*/))
-    .map((step) => step.trim())
-    .filter(Boolean);
-}
-
-function normalizeStep(value: string): string {
-  return value.replace(/\s+/g, "").replace(/[()[\]{}<>]/g, "").toLowerCase();
-}
-
-function currentScreenNames(result: ClxParseResult): string[] {
-  const names = [
-    result.overview.appTitle,
-    result.overview.programName,
-    result.overview.programName.split(">").pop(),
-    result.filePath.split(/[\\/]/).pop()?.replace(/\.clx\.js$/i, ""),
-  ];
-  return names.filter((name): name is string => !!name && !!name.trim()).map(normalizeStep);
-}
-
-function isCurrentWorkflowStep(step: string, currentNames: string[]): boolean {
-  const normalizedStep = normalizeStep(step);
-  return currentNames.some((name) =>
-    normalizedStep === name ||
-    (name.length >= 3 && normalizedStep.includes(name)) ||
-    (normalizedStep.length >= 3 && name.includes(normalizedStep))
-  );
-}
-
-function WorkflowPills({ result }: { result: ClxParseResult }) {
-  const steps = splitWorkflow(result.workHints?.flow ?? []);
-  if (steps.length === 0) return null;
-
-  const names = currentScreenNames(result);
-  return (
-    <div className="flex flex-wrap items-center gap-1.5">
-      {steps.map((step, index) => {
-        const isCurrent = isCurrentWorkflowStep(step, names);
-        return (
-          <span key={`${step}-${index}`} className="inline-flex items-center gap-1.5">
-            <span
-              className={cn(
-                "inline-flex min-h-6 items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold",
-                isCurrent
-                  ? "border-blue-500 bg-blue-100 text-blue-700 shadow-[0_0_0_2px_rgba(37,99,235,0.08)]"
-                  : "border-slate-200 bg-slate-50 text-slate-700"
-              )}
-            >
-              {step}
-              {isCurrent && (
-                <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
-                  현재
-                </span>
-              )}
-            </span>
-            {index < steps.length - 1 && (
-              <span className="text-xs font-bold text-muted-foreground">→</span>
-            )}
-          </span>
-        );
-      })}
-    </div>
-  );
-}
-
 // ── 분석결과 아코디언 ─────────────────────────────────────────
 interface ParseResultAccordionProps {
   result: ClxParseResult;
@@ -179,17 +112,12 @@ interface ParseResultAccordionProps {
 }
 
 export function ParseResultAccordion({ result, nav }: ParseResultAccordionProps) {
-  const { overview, workHints, usage, notes, items, tabPages, popups, usedUdcs } = result;
+  const { overview, usage, notes, items, tabPages, popups, usedUdcs } = result;
   const allExtButtons = [
     ...usage.menuTitleBar.extButtons,
     ...usage.titleBars.flatMap((tb) => tb.extButtons),
     ...usage.extraButtons,
   ];
-  const hasWorkHints = !!workHints && (
-    workHints.flow.length > 0 ||
-    workHints.required.length > 0 ||
-    workHints.caution.length > 0
-  );
 
   // 자식 화면(탭/팝업) URI → 결과 인덱스 해석 후 이동 버튼/요약 렌더
   const renderNavCell = (uri: string) => {
@@ -248,57 +176,11 @@ export function ParseResultAccordion({ result, nav }: ParseResultAccordionProps)
           ).map(([label, value]) => (
             <div key={label} className="flex gap-2">
               <span className="text-muted-foreground shrink-0 w-20">{label}</span>
-              <span className="font-medium whitespace-pre-line">{value || "-"}</span>
+              <span className="font-medium">{value || "-"}</span>
             </div>
           ))}
-          {workHints?.flow.length ? (
-            <div className="flex gap-2 sm:col-span-2">
-              <span className="text-muted-foreground shrink-0 w-20">업무흐름</span>
-              <WorkflowPills result={result} />
-            </div>
-          ) : null}
         </div>
       </Section>
-
-      {/* 작성자 업무 힌트 */}
-      {hasWorkHints && (
-        <Section
-          id="work-hints"
-          icon={<ClipboardList className="h-4 w-4" />}
-          title="작성자 업무 힌트"
-          badge={(workHints.flow.length + workHints.required.length + workHints.caution.length)}
-          defaultOpen
-        >
-          <div className="space-y-3 text-sm">
-            {workHints.flow.length > 0 && (
-              <div>
-                <p className="text-xs text-muted-foreground mb-1.5 font-medium">업무흐름</p>
-                <WorkflowPills result={result} />
-              </div>
-            )}
-            {workHints.required.length > 0 && (
-              <div>
-                <p className="text-xs text-muted-foreground mb-1.5 font-medium">필수사항</p>
-                <ul className="list-disc pl-5 space-y-1">
-                  {workHints.required.map((item, index) => (
-                    <li key={`required-${index}`}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-            {workHints.caution.length > 0 && (
-              <div>
-                <p className="text-xs text-muted-foreground mb-1.5 font-medium">주의사항</p>
-                <ul className="list-disc pl-5 space-y-1">
-                  {workHints.caution.map((item, index) => (
-                    <li key={`caution-${index}`}>{item}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-          </div>
-        </Section>
-      )}
 
       {/* 사용방법 (CRUD) */}
       <Section id="usage" icon={<Database className="h-4 w-4" />} title="사용방법 (CRUD)">
