@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { FileCode2, Folder, FolderOpen, Minus, Square, CheckSquare, Database, RefreshCw, Trash2 } from "lucide-react";
+import { FileCode2, Folder, FolderOpen, Minus, Square, CheckSquare, Database, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useFileTreeStore } from "@/stores/file-tree-store";
@@ -199,7 +199,6 @@ interface FileTreePanelProps {
   onCheckAll: () => void;
   onUncheckAll: () => void;
   onClear: () => void;
-  onDeleteChecked: () => void;
 }
 
 export function FileTreePanel({
@@ -212,7 +211,6 @@ export function FileTreePanel({
   onCheckAll,
   onUncheckAll,
   onClear,
-  onDeleteChecked,
 }: FileTreePanelProps) {
   const [rootExpanded, setRootExpanded] = useState(true);
 
@@ -246,16 +244,6 @@ export function FileTreePanel({
           <span className="font-medium text-foreground">{selectedFiles}</span> / {totalFiles}개 선택
         </p>
         <div className="flex gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={onDeleteChecked}
-            disabled={selectedFiles === 0}
-            className="h-7 text-xs text-destructive hover:text-destructive"
-          >
-            <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-            선택 삭제
-          </Button>
           <Button variant="ghost" size="sm" onClick={onClear} className="h-7 text-xs text-destructive hover:text-destructive">
             초기화
           </Button>
