@@ -176,3 +176,37 @@ test("기술적 제목만 있으면 내용을 유지하고 사용자용 제목�
   assert.deepEqual(headingOrder(canonical), ["일괄승인"]);
   assert.match(canonical, /Step1\. 승인 대상을 선택한다\./);
 });
+
+test("이스케이프 문자와 실제 문자가 섞인 동일 타이틀바 버튼 섹션을 하나로 합친다", () => {
+  const title = "참여인원 (\\u203b활동내역을 먼저 저장해야 등록이 가능합니다.)";
+  const result = parseResult();
+  result.usage.menuTitleBar = {
+    hasInquiry: false,
+    hasNew: false,
+    hasSave: false,
+    hasDelete: false,
+    extButtons: [],
+  };
+  result.usage.extraButtons = [];
+  result.usage.titleBars = [{
+    title,
+    hasInquiry: false,
+    hasNew: false,
+    hasSave: false,
+    hasDelete: false,
+    extButtons: [button("부원선택", 1)],
+  }];
+
+  const input = `{B}참여인원 (※활동내역을 먼저 저장해야 등록이 가능합니다.) - 부원선택{/B}
+Step1. 등록할 부원을 선택합니다.`;
+  const prepared = prepareUsageSections(input, result);
+  const matchingTitles = headingOrder(prepared).filter((heading) =>
+    heading.endsWith(" - 부원선택"),
+  );
+
+  assert.deepEqual(matchingTitles, [
+    "참여인원 (※활동내역을 먼저 저장해야 등록이 가능합니다.) - 부원선택",
+  ]);
+  assert.doesNotMatch(prepared, /\\u203b/);
+  assert.match(prepared, /등록할 부원을 선택합니다/);
+});

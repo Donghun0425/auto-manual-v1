@@ -33,9 +33,43 @@ import type {
   UdcDataType,
   UdcFunctionType,
   UdcFunctionParam,
+  UdcFunctionTargetControl,
   UdcGridColumn,
   UdcCascadeConfig,
 } from "@/types";
+
+const UDC_ANALYSIS_VERSION = "3";
+
+const FILE_UPLOAD_PROPERTY_TARGETS: Record<
+  string,
+  {
+    controlId: string;
+    attribute: string;
+    appliesWhen?: UdcFunctionTargetControl["applies_when"];
+  }
+> = {
+  titleText: { controlId: "T_TITLE_TEXT", attribute: "text" },
+  isTitleVisible: { controlId: "T_TITLE_TEXT", attribute: "visible" },
+  selectButtonText: { controlId: "BTN_UPLOAD_POPUP_OPEN", attribute: "text" },
+  isSelectButtonVisible: {
+    controlId: "BTN_UPLOAD_POPUP_OPEN",
+    attribute: "visible",
+    appliesWhen: [{ property_name: "isMultiUpload", operator: "equals", value: false }],
+  },
+  downloadButtonText: { controlId: "BTN_DOWNLOAD", attribute: "text" },
+  isDownloadButtonVisible: { controlId: "BTN_DOWNLOAD", attribute: "visible" },
+  deleteButtonText: { controlId: "BTN_DELETE", attribute: "text" },
+  isDeleteButtonVisible: { controlId: "BTN_DELETE", attribute: "visible" },
+  searchButtonText: { controlId: "BTN_INQ", attribute: "text" },
+  inqButtonText: { controlId: "BTN_INQ", attribute: "text" },
+  isInqButtonVisible: { controlId: "BTN_INQ", attribute: "visible" },
+  saveButtonText: { controlId: "BTN_SAVE", attribute: "text" },
+  isSaveButtonVisible: {
+    controlId: "BTN_SAVE",
+    attribute: "visible",
+    appliesWhen: [{ property_name: "isMultiUpload", operator: "equals", value: false }],
+  },
+};
 
 /** 전체 파싱 대상 타입 (Pass 3~6 까지 수행) */
 const CORE_TYPES: ReadonlySet<UdcComponentType> = new Set([
@@ -278,9 +312,11 @@ function parseProperties(body: string): RawProperty[] {
 
 interface RawFunction {
   name: string;
+  implementationName: string;
   type: UdcFunctionType;
   parameters: UdcFunctionParam[];
   description: string | null;
+  body: string;
 }
 
 function classifyFunctionType(name: string): UdcFunctionType {
@@ -297,50 +333,219 @@ function classifyFunctionType(name: string): UdcFunctionType {
 /** JSDoc @desc / @param 추출 (함수 정의 위치 기준) */
 function extractJsDoc(
   body: string,
-  funcName: string
+  declarationIndex: number,
+  formalParameters: string[]
 ): { description: string | null; params: UdcFunctionParam[] } {
-  const re = new RegExp(`@function\\s+${funcName}\\b([\\s\\S]{0,1200}?)(?:\\*{3,}|@function)`, "");
-  const m = re.exec(body);
-  if (!m) return { description: null, params: [] };
-  const doc = m[1];
+  const before = body.slice(Math.max(0, declarationIndex - 2000), declarationIndex);
+  const start = before.lastIndexOf("/**");
+  const end = before.lastIndexOf("*/");
+  const doc = start >= 0 && end > start ? before.slice(start, end + 2) : "";
 
   const descM = /@desc\s+(.+)/.exec(doc);
   const description = descM ? descM[1].trim() : null;
 
-  const params: UdcFunctionParam[] = [];
-  const paramRe = /@param\s+(\w+)\s*\{([^}]*)\}\s*(.*)/g;
+  const documented = new Map<string, { type: string; description?: string }>();
+  const paramRe = /@param\s+(?:\{([^}]*)\}\s*)?(\w+)\s*(.*)/g;
   let pm: RegExpExecArray | null;
-  let pos = 0;
   while ((pm = paramRe.exec(doc)) !== null) {
-    params.push({
-      name: pm[1],
-      type: pm[2].trim() || "any",
+    documented.set(pm[2], {
+      type: pm[1]?.trim() || "any",
       description: pm[3].trim() || undefined,
-      position: pos++,
     });
   }
+  const params = formalParameters.map((name, position) => ({
+    name,
+    type: documented.get(name)?.type ?? "any",
+    description: documented.get(name)?.description,
+    position,
+  }));
   return { description, params };
+}
+
+function extractBalancedBody(source: string, openBrace: number): { body: string; end: number } | null {
+  let depth = 0;
+  let quote = "";
+  let escaped = false;
+  for (let i = openBrace; i < source.length; i++) {
+    const char = source[i];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === quote) quote = "";
+      continue;
+    }
+    if (char === '"' || char === "'" || char === "`") {
+      quote = char;
+      continue;
+    }
+    if (char === "{") depth++;
+    else if (char === "}" && --depth === 0) {
+      return { body: source.slice(openBrace + 1, i), end: i + 1 };
+    }
+  }
+  return null;
+}
+
+interface FunctionDeclaration {
+  name: string;
+  parameters: string[];
+  body: string;
+  index: number;
+}
+
+function parseFunctionDeclarations(body: string): Map<string, FunctionDeclaration> {
+  const declarations = new Map<string, FunctionDeclaration>();
+  const re = /function\s+(\w+)\s*\(([^)]*)\)\s*\{/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(body)) !== null) {
+    const openBrace = re.lastIndex - 1;
+    const extracted = extractBalancedBody(body, openBrace);
+    if (!extracted) continue;
+    declarations.set(match[1], {
+      name: match[1],
+      parameters: match[2].split(",").map((item) => item.replace(/\/\*[\s\S]*?\*\//g, "").trim()).filter(Boolean),
+      body: extracted.body,
+      index: match.index,
+    });
+    re.lastIndex = extracted.end;
+  }
+  return declarations;
 }
 
 function parseFunctions(body: string): RawFunction[] {
   const funcs: RawFunction[] = [];
   const seen = new Set<string>();
-  // exports.NAME = something;
-  const re = /exports\.(\w+)\s*=/g;
+  const declarations = parseFunctionDeclarations(body);
+  // exports.NAME = implementationName;
+  const re = /exports\.(\w+)\s*=\s*(\w+)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(body)) !== null) {
     const name = m[1];
     if (seen.has(name)) continue;
     seen.add(name);
-    const { description, params } = extractJsDoc(body, name);
+    const implementationName = m[2];
+    const declaration = declarations.get(implementationName);
+    const formalParameters = declaration?.parameters ?? [];
+    const { description, params } = extractJsDoc(
+      body,
+      declaration?.index ?? m.index,
+      formalParameters
+    );
     funcs.push({
       name,
+      implementationName,
       type: classifyFunctionType(name),
       parameters: params,
       description,
+      body: declaration?.body ?? "",
     });
   }
   return funcs;
+}
+
+interface LayoutTarget {
+  column: number;
+  controlId: string;
+}
+
+function parseLayoutTargets(body: string): LayoutTarget[] {
+  const variableToControl = new Map<string, string>();
+  const declarationRe = /var\s+(\w+)\s*=\s*(?:linker\.\w+\s*=\s*)?new\s+cpr\.controls\.(?:grids\.)?\w+\s*\(\s*"([^"]+)"/g;
+  let match: RegExpExecArray | null;
+  while ((match = declarationRe.exec(body)) !== null) variableToControl.set(match[1], match[2]);
+
+  const targets: LayoutTarget[] = [];
+  const addChildRe = /container\.addChild\(\s*(\w+)\s*,\s*\{([\s\S]*?)\}\s*\)/g;
+  while ((match = addChildRe.exec(body)) !== null) {
+    const controlId = variableToControl.get(match[1]);
+    const columnMatch = /["']?colIndex["']?\s*:\s*(\d+)/.exec(match[2]);
+    if (controlId && columnMatch) targets.push({ column: Number(columnMatch[1]), controlId });
+  }
+  return targets;
+}
+
+function reachableFunctionBodies(
+  root: RawFunction,
+  declarations: Map<string, FunctionDeclaration>
+): string[] {
+  const result: string[] = [];
+  const pending = [root.implementationName];
+  const seen = new Set<string>();
+  while (pending.length > 0) {
+    const name = pending.pop()!;
+    if (seen.has(name)) continue;
+    seen.add(name);
+    const declaration = declarations.get(name);
+    if (!declaration) continue;
+    result.push(declaration.body);
+    for (const candidate of declarations.keys()) {
+      if (!seen.has(candidate) && new RegExp(`\\b${candidate}\\s*\\(`).test(declaration.body)) {
+        pending.push(candidate);
+      }
+    }
+  }
+  return result;
+}
+
+function mapFunctionToControls(
+  func: RawFunction,
+  componentBody: string
+): UdcFunctionTargetControl[] {
+  if (func.parameters.length === 0) return [];
+  const declarations = parseFunctionDeclarations(componentBody);
+  const bodies = reachableFunctionBodies(func, declarations);
+  if (bodies.length === 0) return [];
+  const reachable = bodies.join("\n");
+  const layoutTargets = parseLayoutTargets(componentBody);
+  const result: UdcFunctionTargetControl[] = [];
+  const seen = new Set<string>();
+
+  for (const parameter of func.parameters) {
+    const symbols = new Set([parameter.name]);
+    let changed = true;
+    while (changed) {
+      changed = false;
+      const assignmentRe = /\b(\w+)\s*=\s*(\w+)\s*;/g;
+      let assignment: RegExpExecArray | null;
+      while ((assignment = assignmentRe.exec(reachable)) !== null) {
+        if (symbols.has(assignment[2]) && !symbols.has(assignment[1])) {
+          symbols.add(assignment[1]);
+          changed = true;
+        }
+      }
+    }
+
+    const attribute = func.type === "set_label" ? "text" : "visible";
+    const addTarget = (controlId: string) => {
+      const key = `${parameter.position}:${controlId}:${attribute}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      result.push({
+        control_id: controlId,
+        attribute,
+        parameter_name: parameter.name,
+        parameter_position: parameter.position,
+      });
+    };
+
+    for (const symbol of symbols) {
+      const escaped = symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      const sinkAttribute = func.type === "set_label" ? "(?:value|text)" : "visible";
+      const directRe = new RegExp(`app\\.lookup\\(["']([^"']+)["']\\)\\.${sinkAttribute}\\s*=\\s*(?:[^;]*?\\b)?${escaped}\\b`, "g");
+      let direct: RegExpExecArray | null;
+      while ((direct = directRe.exec(reachable)) !== null) addTarget(direct[1]);
+
+      if (func.type !== "set_visible") continue;
+      const columnRe = new RegExp(`\\.setColumnVisible\\(\\s*(\\d+)\\s*,\\s*${escaped}\\s*\\)`, "g");
+      let column: RegExpExecArray | null;
+      while ((column = columnRe.exec(reachable)) !== null) {
+        for (const target of layoutTargets.filter((item) => item.column === Number(column![1]))) {
+          addTarget(target.controlId);
+        }
+      }
+    }
+  }
+  return result;
 }
 
 // ============================================================
@@ -441,8 +646,13 @@ function classifyComponentType(
 /** 라벨 프로퍼티 → 라벨 컨트롤 매핑 (기본값 텍스트 일치 기반) */
 function mapPropertyToControl(
   prop: RawProperty,
-  controls: RawControl[]
+  controls: RawControl[],
+  componentType: UdcComponentType
 ): { controlId: string | null; attribute: string | null } {
+  if (componentType === "file_upload") {
+    const target = FILE_UPLOAD_PROPERTY_TARGETS[prop.name];
+    if (target) return { controlId: target.controlId, attribute: target.attribute };
+  }
   if (prop.group === "label" && prop.defaultValue) {
     const match = controls.find(
       (c) => c.isLabel && c.defaultLabel === prop.defaultValue
@@ -468,6 +678,18 @@ function mapFunctionToProperties(
   func: RawFunction,
   props: RawProperty[]
 ): string[] {
+  const fileUploadAliases: Record<string, string> = {
+    setTitleVisible: "isTitleVisible",
+    setSelectButtonVisible: "isSelectButtonVisible",
+    setDownloadButtonVisible: "isDownloadButtonVisible",
+    setDeleteButtonVisible: "isDeleteButtonVisible",
+    setIsInqButtonVisible: "isInqButtonVisible",
+    setIsSaveButtonVisible: "isSaveButtonVisible",
+    setInqButtonText: "searchButtonText",
+  };
+  const aliased = fileUploadAliases[func.name];
+  if (aliased && props.some((property) => property.name === aliased)) return [aliased];
+
   const m = /^(?:set|init)(.+)$/.exec(func.name);
   if (!m) return [];
   const base = m[1];
@@ -512,7 +734,7 @@ function parseBlock(qualifiedName: string, body: string): ParsedUdc | null {
     author: meta.author,
     version: meta.version,
     section_usage: sectionUsage,
-    source_hash: sha1(body),
+    source_hash: sha1(`${UDC_ANALYSIS_VERSION}\0${body}`),
     raw_metadata: null,
   };
 
@@ -525,7 +747,7 @@ function parseBlock(qualifiedName: string, body: string): ParsedUdc | null {
       component,
       controls: [],
       properties: [],
-      functions: rawFunctions.map((f) => toFunctionInsert(f, [])),
+      functions: rawFunctions.map((f) => toFunctionInsert(f, [], body)),
       datasets: [],
     };
   }
@@ -540,7 +762,7 @@ function parseBlock(qualifiedName: string, body: string): ParsedUdc | null {
     body
   );
   const properties: ParsedProperty[] = rawProps.map((p) => {
-    const { controlId, attribute } = mapPropertyToControl(p, rawControls);
+    const { controlId, attribute } = mapPropertyToControl(p, rawControls, componentType);
     return {
       property_name: p.name,
       property_group: p.group,
@@ -551,7 +773,7 @@ function parseBlock(qualifiedName: string, body: string): ParsedUdc | null {
     };
   });
   const functions: ParsedFunction[] = rawFunctions.map((f) =>
-    toFunctionInsert(f, mapFunctionToProperties(f, rawProps))
+    toFunctionInsert(f, mapFunctionToProperties(f, rawProps), body, componentType)
   );
   const datasets: ParsedDataset[] = rawDatasets.map((d) => ({
     dataset_name: d.name,
@@ -564,13 +786,37 @@ function parseBlock(qualifiedName: string, body: string): ParsedUdc | null {
   return { component, controls, properties, functions, datasets };
 }
 
-function toFunctionInsert(f: RawFunction, targetProps: string[]): ParsedFunction {
+function toFunctionInsert(
+  f: RawFunction,
+  targetProps: string[],
+  componentBody: string,
+  componentType?: UdcComponentType
+): ParsedFunction {
+  const targetControls = mapFunctionToControls(f, componentBody);
+  if (componentType === "file_upload") {
+    for (const propertyName of targetProps) {
+      const target = FILE_UPLOAD_PROPERTY_TARGETS[propertyName];
+      if (!target) continue;
+      const existing = targetControls.find((item) =>
+        item.control_id === target.controlId && item.attribute === target.attribute
+      );
+      if (existing) {
+        if (target.appliesWhen) existing.applies_when = target.appliesWhen;
+      } else {
+        targetControls.push({
+          control_id: target.controlId,
+          attribute: target.attribute,
+          ...(target.appliesWhen ? { applies_when: target.appliesWhen } : {}),
+        });
+      }
+    }
+  }
   return {
     function_name: f.name,
     function_type: f.type,
     parameters: f.parameters,
     target_properties: targetProps,
-    target_controls: [],
+    target_controls: targetControls,
     is_exported: true,
     description: f.description,
   };

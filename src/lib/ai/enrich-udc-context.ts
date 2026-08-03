@@ -11,6 +11,7 @@
 import type { ClxParseResult, UdcEnrichmentContext, ResolvedUdcInfo } from "@/types";
 import { getUdcDetailsByShortNames } from "@/lib/supabase/queries/udc";
 import { resolveUdc, type UdcDetail } from "@/lib/parser/udc-label-resolver";
+import { createLayoutVisibilityResolver } from "@/lib/parser/visibility";
 
 interface CacheEntry {
   detail: UdcDetail;
@@ -19,6 +20,14 @@ interface CacheEntry {
 
 const TTL_MS = 5 * 60 * 1000;
 const detailCache = new Map<string, CacheEntry>();
+
+export function invalidateUdcContextCache(shortNames?: string[]): void {
+  if (!shortNames) {
+    detailCache.clear();
+    return;
+  }
+  for (const shortName of shortNames) detailCache.delete(shortName);
+}
 
 /** 캐시에서 유효한 상세를 가져온다 (만료 항목 제거) */
 function getCached(shortName: string): UdcDetail | undefined {
@@ -63,10 +72,11 @@ export async function enrichUdcContext(
   }
 
   const resolved: ResolvedUdcInfo[] = [];
+  const layoutVisibility = createLayoutVisibilityResolver(clxContent);
   for (const name of shortNames) {
     const detail = getCached(name);
     if (detail) {
-      resolved.push(resolveUdc(detail, clxContent));
+      resolved.push(resolveUdc(detail, clxContent, layoutVisibility.isVisible));
     }
   }
 
@@ -93,16 +103,38 @@ export function buildLabelOverrideMap(ctx: UdcEnrichmentContext): Map<string, st
  * UDC 보강 정보를 프롬프트용 텍스트 블록으로 변환한다.
  * 비어있으면 빈 문자열 반환 (프롬프트에 추가하지 않음).
  */
-export function formatUdcHint(ctx: UdcEnrichmentContext): string {
+export function formatUdcHint(
+  ctx: UdcEnrichmentContext,
+  parseResult?: ClxParseResult
+): string {
   if (!ctx.available || ctx.udcs.length === 0) return "";
 
   const lines: string[] = [];
   for (const udc of ctx.udcs) {
-    const parts: string[] = [`· ${udc.displayName}`];
-
+    if (udc.componentType === "file_upload") {
+      const instances = udc.instances.length > 0
+        ? udc.instances
+        : [{ instanceId: "", resolvedLabels: [], actions: udc.actions }];
+      for (const instance of instances) {
+        const actions = (instance.actions ?? udc.actions)
+          .filter((action) => action.label && action.visibility !== "hidden" && action.visibility !== "unknown")
+          .map((action) => action.label!);
+        if (actions.length === 0) continue;
+        const functionPrefix = instance.instanceId ? `UDC_${instance.instanceId}_` : "UDC_";
+        const usageTitle = parseResult?.usage.titleBars.find((bar) =>
+          bar.extButtons.some((button) => button.functionName.startsWith(functionPrefix))
+        )?.title;
+        lines.push(`· ${usageTitle || instance.explicitTitle || udc.displayName} / 동작: ${actions.join(", ")}`);
+      }
+      continue;
+    }
     const labels = udc.resolvedLabels
       .filter((l) => l.resolvedLabel)
       .map((l) => l.resolvedLabel);
+    const visibleDisplayName = udc.componentType === "cascading_combo" && labels.length > 0
+      ? `${labels.join(" / ")} 선택 컴포넌트`
+      : udc.displayName;
+    const parts: string[] = [`· ${visibleDisplayName}`];
     if (labels.length) parts.push(`항목: ${labels.join(", ")}`);
 
     if (udc.componentType === "cascading_combo" && udc.cascade) {

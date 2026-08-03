@@ -14,7 +14,7 @@
 import type { ConditionGroupInfo, ConditionControlInfo } from '@/types';
 import { UDC_REGISTRY, type UdcInfo } from './udcRegistry.ts';
 import { normalizeLabel } from '../utils.ts';
-import { isControlVisibleInLayout } from './visibility.ts';
+import { createLayoutVisibilityResolver, type LayoutVisibilityResolver } from './visibility.ts';
 
 /** 입력 컨트롤로 간주하지 않을 타입 키워드 */
 const SKIP_TYPES = new Set([
@@ -34,6 +34,37 @@ function shortType(fullType: string): string {
 /** UDC 여부 (new udc.* 로 시작하는 타입) */
 function isUdcType(fullType: string): boolean {
   return fullType.startsWith('udc.');
+}
+
+/** Resolve the latest positional visibility setter for a UDC instance. */
+function findPositionalVisibility(
+  content: string,
+  controlId: string,
+  expectedCount: number,
+): (boolean | undefined)[] | null {
+  const idEsc = controlId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const candidates: { position: number; rawArgs: string }[] = [];
+  const patterns = [
+    new RegExp(`app\\.lookup\\(["']${idEsc}["']\\)\\.setObjectVisible\\s*\\(([^)]*)\\)`, 'g'),
+  ];
+  const declaration = new RegExp(
+    `var\\s+(\\w+)\\s*=\\s*(?:linker\\.\\w+\\s*=\\s*)?new\\s+udc\\.[\\w.]+\\s*\\(\\s*["']${idEsc}["']`,
+  ).exec(content);
+  if (declaration) {
+    const variable = declaration[1].replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    patterns.push(new RegExp(`\\b${variable}\\.setObjectVisible\\s*\\(([^)]*)\\)`, 'g'));
+  }
+  for (const pattern of patterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(content)) !== null) {
+      candidates.push({ position: match.index, rawArgs: match[1] });
+    }
+  }
+  const latest = candidates.sort((a, b) => a.position - b.position).at(-1);
+  if (!latest) return null;
+  const args = latest.rawArgs.split(',').map((arg) => arg.trim());
+  if (args.length !== expectedCount) return null;
+  return args.map((arg) => arg === 'true' ? true : arg === 'false' ? false : undefined);
 }
 
 /**
@@ -81,11 +112,16 @@ function findUdcLabelFromFullContent(
   // 호스트 파일에 라벨 호출 없음 → 레지스트리 defaultLabels 폴백 (visible=false 제외)
   if (udcInfo) {
     const visibleFalseProps = extractVisibleFalseForInstance(content, controlId);
+    const positionalVisibility = findPositionalVisibility(
+      content,
+      controlId,
+      Object.keys(udcInfo.defaultLabels).length,
+    );
     const defaults = Object.entries(udcInfo.defaultLabels)
-      .filter(([propName]) => {
+      .filter(([propName], index) => {
         // propName이 "bplcCdLabel" 형태 → "bplcCdVisible"로 변환하여 visible=false 체크
         const visiblePropName = propName.replace(/Label$/i, 'Visible');
-        return !visibleFalseProps.has(visiblePropName);
+        return !visibleFalseProps.has(visiblePropName) && positionalVisibility?.[index] !== false;
       })
       .map(([, label]) => label)
       .filter(Boolean);
@@ -223,7 +259,11 @@ const LAYOUT_CONTAINER_RE = /^(LAYOUT|SEARCHGROUP|CONDITIONGROUP|BATCH_GROUP|GRI
 /**
  * 함수 본문에서 컨트롤 정보 파싱
  */
-function parseBodyControls(body: string, fullContent: string): Array<{
+function parseBodyControls(
+  body: string,
+  fullContent: string,
+  layoutVisibility: LayoutVisibilityResolver,
+): Array<{
   varName: string;
   controlId: string;
   controlType: string;
@@ -367,7 +407,7 @@ function parseBodyControls(body: string, fullContent: string): Array<{
     const isDisabled = new RegExp(`${varName}\\.enable\\s*=\\s*false`).test(outerBody);
 
     // visible 최종값이 false 인 컨트롤은 화면에 노출되지 않으므로 항목에서 제외
-    if (!isControlVisibleInLayout(fullContent, controlId)) continue;
+    if (!layoutVisibility.isVisible(controlId)) continue;
 
     // CheckBox: value-change 핸들러명과 trueValue 추출 (조회 기준 전환 토글 분석용)
     let valueChangeHandler: string | undefined;
@@ -390,7 +430,7 @@ function parseBodyControls(body: string, fullContent: string): Array<{
   //   → 단일 행 중첩 컨테이너(nc.rowIndex=0)는 기존과 동일
   //   → INFOGROUP 등 다중 행 중첩 컨테이너는 행이 분리되어 올바른 라벨 매칭
   for (const { rowIndex, colIndex, nestedBody } of nestedEntries) {
-    const nestedControls = parseBodyControls(nestedBody, fullContent);
+    const nestedControls = parseBodyControls(nestedBody, fullContent, layoutVisibility);
     for (const nc of nestedControls) {
       result.push({
         ...nc,
@@ -753,12 +793,15 @@ function applyRangePairSuffixes(pairs: ConditionControlInfo[]): void {
  */
 export function parseConditionGroups(content: string): ConditionGroupInfo[] {
   const groups: ConditionGroupInfo[] = [];
+  const layoutVisibility = createLayoutVisibilityResolver(content);
 
   const containerRe = /new\s+cpr\.controls\.Container\("((SEARCHGROUP|CONDITIONGROUP|BATCH_GROUP)(\d+))"\)/g;
   let m: RegExpExecArray | null;
 
   while ((m = containerRe.exec(content)) !== null) {
     const groupId = m[1];
+    // 숨김 행·열에 배치된 그룹은 자손 항목까지 전체 제외한다.
+    if (!layoutVisibility.isVisible(groupId)) continue;
     const groupType: ConditionGroupInfo['groupType'] =
       m[2] === 'SEARCHGROUP' ? '조회조건'
       : m[2] === 'CONDITIONGROUP' ? '처리조건'
@@ -777,7 +820,7 @@ export function parseConditionGroups(content: string): ConditionGroupInfo[] {
       if (titleMatch) groupTitle = titleMatch[1];
     }
 
-    const controls = parseBodyControls(body, content);
+    const controls = parseBodyControls(body, content, layoutVisibility);
     const pairs = buildPairs(controls, groupType, content);
 
     if (pairs.length > 0 || groupTitle) {

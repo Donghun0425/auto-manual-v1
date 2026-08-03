@@ -11,7 +11,9 @@
  */
 import type {
   LabelResolution,
+  ResolvedUdcAction,
   ResolvedUdcInfo,
+  ResolvedVisibility,
   UdcComponent,
   UdcControl,
   UdcProperty,
@@ -34,6 +36,13 @@ interface SetterCall {
   argLabel: string;
 }
 
+interface UdcFunctionCall {
+  instanceId: string;
+  functionName: string;
+  args: (string | boolean | undefined)[];
+  position: number;
+}
+
 interface UdcInstance {
   instanceId: string;
   variableName: string;
@@ -43,7 +52,9 @@ interface FileUploadActionSpec {
   controlId: string;
   labelProperties: string[];
   visibleProperty: string;
-  setterNames?: string[];
+  labelSetterNames?: string[];
+  visibleSetterNames?: string[];
+  singleUploadOnly?: boolean;
 }
 
 const FILE_UPLOAD_ACTION_SPECS: FileUploadActionSpec[] = [
@@ -51,6 +62,8 @@ const FILE_UPLOAD_ACTION_SPECS: FileUploadActionSpec[] = [
     controlId: "BTN_UPLOAD_POPUP_OPEN",
     labelProperties: ["selectButtonText"],
     visibleProperty: "isSelectButtonVisible",
+    visibleSetterNames: ["setSelectButtonVisible"],
+    singleUploadOnly: true,
   },
   {
     controlId: "BTN_DOWNLOAD",
@@ -66,12 +79,13 @@ const FILE_UPLOAD_ACTION_SPECS: FileUploadActionSpec[] = [
     controlId: "BTN_INQ",
     labelProperties: ["searchButtonText", "inqButtonText"],
     visibleProperty: "isInqButtonVisible",
-    setterNames: ["setInqButtonText"],
+    labelSetterNames: ["setInqButtonText"],
   },
   {
     controlId: "BTN_SAVE",
     labelProperties: ["saveButtonText"],
     visibleProperty: "isSaveButtonVisible",
+    singleUploadOnly: true,
   },
 ];
 
@@ -93,6 +107,41 @@ function parseLiteral(raw: string): string | boolean {
   return value.replace(/\\'/g, "'").replace(/\\\\/g, "\\");
 }
 
+function splitCallArguments(raw: string): string[] {
+  const result: string[] = [];
+  let start = 0;
+  let quote = "";
+  let escaped = false;
+  let depth = 0;
+  for (let i = 0; i <= raw.length; i++) {
+    const char = raw[i];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === quote) quote = "";
+      continue;
+    }
+    if (char === '"' || char === "'") quote = char;
+    else if (char === "(" || char === "[" || char === "{") depth++;
+    else if (char === ")" || char === "]" || char === "}") depth--;
+    else if ((char === "," && depth === 0) || i === raw.length) {
+      result.push(raw.slice(start, i).trim());
+      start = i + 1;
+    }
+  }
+  return result.length === 1 && result[0] === "" ? [] : result;
+}
+
+function parseCallLiteral(raw: string): string | boolean | undefined {
+  const value = raw.trim();
+  if (value === "true" || value === "false") return value === "true";
+  if ((value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))) {
+    return parseLiteral(value);
+  }
+  return undefined;
+}
+
 function findUdcInstances(clxContent: string, shortName: string): UdcInstance[] {
   const result: UdcInstance[] = [];
   const re = new RegExp(
@@ -106,6 +155,34 @@ function findUdcInstances(clxContent: string, shortName: string): UdcInstance[] 
   return result;
 }
 
+function extractInstanceFunctionCalls(
+  clxContent: string,
+  instances: UdcInstance[]
+): UdcFunctionCall[] {
+  const calls: UdcFunctionCall[] = [];
+  for (const instance of instances) {
+    const instanceId = escapeRegExp(instance.instanceId);
+    const variableName = escapeRegExp(instance.variableName);
+    const patterns = [
+      new RegExp(`app\\.lookup\\(["']${instanceId}["']\\)\\.(\\w+)\\s*\\(([^)]*)\\)`, "g"),
+      new RegExp(`\\b${variableName}\\.(\\w+)\\s*\\(([^)]*)\\)`, "g"),
+    ];
+    for (const pattern of patterns) {
+      let match: RegExpExecArray | null;
+      while ((match = pattern.exec(clxContent)) !== null) {
+        calls.push({
+          instanceId: instance.instanceId,
+          functionName: match[1],
+          args: splitCallArguments(match[2]).map(parseCallLiteral),
+          position: match.index,
+        });
+      }
+    }
+  }
+  calls.sort((a, b) => a.position - b.position);
+  return calls;
+}
+
 /** UDC 인스턴스에 적용된 문자열/불리언 프로퍼티의 최종값을 코드 등장 순서로 해석한다. */
 function findInstanceOverride(
   clxContent: string,
@@ -113,13 +190,27 @@ function findInstanceOverride(
   propertyName: string,
   setterNames: string[] = []
 ): string | boolean | undefined {
+  return findInstanceOverrideResult(
+    clxContent,
+    instance,
+    propertyName,
+    setterNames
+  )?.value;
+}
+
+function findInstanceOverrideResult(
+  clxContent: string,
+  instance: UdcInstance,
+  propertyName: string,
+  setterNames: string[] = []
+): { value: string | boolean | undefined; position: number } | undefined {
   const literal = `(true|false|"(?:\\\\.|[^"\\\\])*"|'(?:\\\\.|[^'\\\\])*')`;
   const instanceId = escapeRegExp(instance.instanceId);
   const variableName = escapeRegExp(instance.variableName);
   const property = escapeRegExp(propertyName);
   const defaultSetter = `set${propertyName[0].toUpperCase()}${propertyName.slice(1)}`;
   const setters = [...new Set([defaultSetter, ...setterNames])].map(escapeRegExp).join("|");
-  const matches: { position: number; value: string | boolean }[] = [];
+  const matches: { position: number; value: string | boolean | undefined }[] = [];
 
   const patterns = [
     new RegExp(`app\\.lookup\\(["']${instanceId}["']\\)\\.${property}\\s*=\\s*${literal}`, "g"),
@@ -135,8 +226,23 @@ function findInstanceOverride(
     }
   }
 
+  const dynamicPatterns = [
+    new RegExp(`app\\.lookup\\(["']${instanceId}["']\\)\\.${property}\\s*=\\s*([^;\\r\\n]+)`, "g"),
+    new RegExp(`\\b${variableName}\\.${property}\\s*=\\s*([^;\\r\\n]+)`, "g"),
+    new RegExp(`app\\.lookup\\(["']${instanceId}["']\\)\\.(?:${setters})\\s*\\(\\s*([^)]*)\\)`, "g"),
+    new RegExp(`\\b${variableName}\\.(?:${setters})\\s*\\(\\s*([^)]*)\\)`, "g"),
+  ];
+  for (const pattern of dynamicPatterns) {
+    let match: RegExpExecArray | null;
+    while ((match = pattern.exec(clxContent)) !== null) {
+      const raw = match[1].trim();
+      if (/^(?:true|false|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')$/.test(raw)) continue;
+      matches.push({ position: match.index, value: undefined });
+    }
+  }
+
   matches.sort((a, b) => a.position - b.position);
-  return matches.at(-1)?.value;
+  return matches.at(-1);
 }
 
 /**
@@ -342,13 +448,13 @@ function instancePropertyValue(
   setterNames: string[] = []
 ): string | boolean | undefined {
   for (const propertyName of propertyNames) {
-    const override = findInstanceOverride(
+    const override = findInstanceOverrideResult(
       clxContent,
       instance,
       propertyName,
       setterNames
     );
-    if (override !== undefined) return override;
+    if (override) return override.value;
   }
   return defaultPropertyValue(detail, propertyNames);
 }
@@ -357,64 +463,74 @@ function instancePropertyValue(
  * 파일 업로드 UDC는 아이콘 버튼의 text가 비어 있고 버튼 문구가 app property에
  * 보관되므로, 컨트롤 default_label 대신 *ButtonText/*ButtonVisible 쌍으로 액션을 만든다.
  */
-function resolveFileUploadActions(
+function resolveFileUploadInstanceActions(
   detail: UdcDetail,
-  clxContent: string
-): ResolvedUdcInfo["actions"] | undefined {
-  const hasActionMetadata = FILE_UPLOAD_ACTION_SPECS.some((spec) =>
-    spec.labelProperties.some((name) =>
-      detail.properties.some((property) => property.property_name === name)
-    )
-  );
-  if (!hasActionMetadata) return undefined;
-
-  const instances = findUdcInstances(clxContent, detail.component.short_name);
+  clxContent: string,
+  instance?: UdcInstance
+): ResolvedUdcAction[] {
   const controls = new Map(detail.controls.map((control) => [control.control_id, control]));
-  const actions: ResolvedUdcInfo["actions"] = [];
-  const seen = new Set<string>();
+  const actions: ResolvedUdcAction[] = [];
+  const valueFor = (propertyNames: string[], setterNames: string[] = []) => instance
+    ? instancePropertyValue(detail, clxContent, instance, propertyNames, setterNames)
+    : defaultPropertyValue(detail, propertyNames);
 
   for (const spec of FILE_UPLOAD_ACTION_SPECS) {
-    const defaultLabel = defaultPropertyValue(detail, spec.labelProperties);
-    if (typeof defaultLabel !== "string" || !defaultLabel.trim()) continue;
-
-    const candidates = instances.length > 0
-      ? instances.map((instance) => {
-          const visible = instancePropertyValue(
-            detail,
-            clxContent,
-            instance,
-            [spec.visibleProperty]
-          );
-          const label = instancePropertyValue(
-            detail,
-            clxContent,
-            instance,
-            spec.labelProperties,
-            spec.setterNames
-          );
-          return {
-            visible: visible !== false,
-            label: typeof label === "string" ? label.trim() : "",
-          };
-        })
-      : [{ visible: defaultPropertyValue(detail, [spec.visibleProperty]) !== false, label: defaultLabel.trim() }];
-
     const control = controls.get(spec.controlId);
-    for (const candidate of candidates) {
-      if (!candidate.visible || !candidate.label) continue;
-      const key = `${spec.controlId}\u0000${candidate.label}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      actions.push({
-        controlId: spec.controlId,
-        actionType: control?.action_type ?? null,
-        actionTarget: control?.action_target ?? null,
-        label: candidate.label,
-      });
+    const rawLabel = valueFor(spec.labelProperties, spec.labelSetterNames);
+    const fallbackLabel = control?.default_label?.trim() ?? "";
+    const label = typeof rawLabel === "string" && rawLabel.trim()
+      ? rawLabel.trim()
+      : fallbackLabel;
+    if (!label) continue;
+
+    const reasons: string[] = [];
+    let visibility: ResolvedVisibility;
+    if (spec.singleUploadOnly) {
+      const isMultiUpload = valueFor(["isMultiUpload"], ["setIsMultiUpload"]);
+      reasons.push(`isMultiUpload=${String(isMultiUpload)}`);
+      if (isMultiUpload === true) visibility = "hidden";
+      else if (isMultiUpload !== false) visibility = "unknown";
+      else visibility = "visible";
+    } else {
+      visibility = "visible";
     }
+
+    if (visibility === "visible") {
+      const visible = valueFor([spec.visibleProperty], spec.visibleSetterNames);
+      reasons.push(`${spec.visibleProperty}=${String(visible)}`);
+      visibility = visible === true ? "visible" : visible === false ? "hidden" : "unknown";
+    }
+
+    actions.push({
+      controlId: spec.controlId,
+      actionType: control?.action_type ?? null,
+      actionTarget: control?.action_target ?? null,
+      label,
+      visibility,
+      visibilityReasons: reasons,
+    });
   }
 
   return actions;
+}
+
+function mergeVisibleActions(actionsByInstance: ResolvedUdcAction[][]): ResolvedUdcInfo["actions"] {
+  const result: ResolvedUdcInfo["actions"] = [];
+  const seen = new Set<string>();
+  for (const actions of actionsByInstance) {
+    for (const action of actions) {
+      if (action.visibility !== "visible" || !action.label) continue;
+      const key = `${action.controlId}\0${action.label}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(action);
+    }
+  }
+  const order = new Map(FILE_UPLOAD_ACTION_SPECS.map((spec, index) => [spec.controlId, index]));
+  return result.sort((a, b) =>
+    (order.get(a.controlId) ?? Number.MAX_SAFE_INTEGER) -
+    (order.get(b.controlId) ?? Number.MAX_SAFE_INTEGER)
+  );
 }
 
 function resolveControlActions(detail: UdcDetail): ResolvedUdcInfo["actions"] {
@@ -428,17 +544,105 @@ function resolveControlActions(detail: UdcDetail): ResolvedUdcInfo["actions"] {
     }));
 }
 
+function resolveInstanceLabels(
+  detail: UdcDetail,
+  instance: UdcInstance,
+  calls: UdcFunctionCall[],
+  visibleOverrides: VisibleOverride[]
+): LabelResolution[] {
+  const labels = baseLabels(detail).map((label) => ({ ...label }));
+  const properties = new Map(detail.properties.map((property) => [property.property_name, property]));
+  const visibility = new Map<string, boolean>();
+
+  for (const call of calls.filter((item) => item.instanceId === instance.instanceId)) {
+    const fn = detail.functions.find((item) => item.function_name === call.functionName);
+    if (!fn) continue;
+
+    for (const target of fn.target_controls ?? []) {
+      const parameterPosition = target.parameter_position ?? 0;
+      const value = call.args[parameterPosition];
+      if (target.attribute === "visible" && typeof value === "boolean") {
+        visibility.set(target.control_id, value);
+      } else if ((target.attribute === "text" || target.attribute === "value") && typeof value === "string") {
+        const label = labels.find((item) => item.targetControlId === target.control_id);
+        if (label) {
+          label.resolvedLabel = value;
+          label.functionName = call.functionName;
+        }
+      }
+    }
+
+    // Backward-compatible fallback for existing single-property label metadata.
+    if (fn.function_type === "set_label" && typeof call.args[0] === "string" && (fn.target_controls?.length ?? 0) === 0) {
+      const propertyName = fn.target_properties[0];
+      const property = propertyName ? properties.get(propertyName) : undefined;
+      const label = property?.target_control_id
+        ? labels.find((item) => item.targetControlId === property.target_control_id)
+        : undefined;
+      if (label) {
+        label.resolvedLabel = call.args[0];
+        label.functionName = call.functionName;
+      }
+    }
+  }
+
+  const propertyFiltered = applyVisibleFilter(
+    detail,
+    visibleOverrides.filter((item) => item.instanceId === instance.instanceId),
+    labels
+  );
+  return propertyFiltered.filter((label) => visibility.get(label.targetControlId ?? "") !== false);
+}
+
+function mergeResolvedLabels(instances: ResolvedUdcInfo["instances"]): LabelResolution[] {
+  const result: LabelResolution[] = [];
+  const seen = new Set<string>();
+  for (const instance of instances) {
+    for (const label of instance.resolvedLabels) {
+      const key = `${label.targetControlId ?? ""}\0${label.resolvedLabel}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      result.push(label);
+    }
+  }
+  return result;
+}
+
 /**
  * 단일 UDC 의 최종 매뉴얼 보강 정보를 해석한다.
  */
-export function resolveUdc(detail: UdcDetail, clxContent: string): ResolvedUdcInfo {
-  const calls = extractSetterCalls(clxContent);
+export function resolveUdc(
+  detail: UdcDetail,
+  clxContent: string,
+  isInstanceVisible: (instanceId: string) => boolean = () => true,
+): ResolvedUdcInfo {
+  const discoveredInstances = findUdcInstances(clxContent, detail.component.short_name);
+  const instances = discoveredInstances.filter((instance) => isInstanceVisible(instance.instanceId));
+  const functionCalls = extractInstanceFunctionCalls(clxContent, instances);
   const visibleOverrides = extractVisibleOverrides(clxContent);
-  const resolvedLabels = applyVisibleFilter(
-    detail,
-    visibleOverrides,
-    applyOverrides(detail, calls, baseLabels(detail))
-  );
+  const isFileUpload = detail.component.component_type === "file_upload";
+  const resolvedInstances = instances.map((instance) => {
+    const explicitTitle = isFileUpload
+      ? findInstanceOverride(clxContent, instance, "titleText", ["setTitleText"])
+      : undefined;
+    return {
+      instanceId: instance.instanceId,
+      resolvedLabels: resolveInstanceLabels(detail, instance, functionCalls, visibleOverrides),
+      ...(isFileUpload ? { actions: resolveFileUploadInstanceActions(detail, clxContent, instance) } : {}),
+      ...(typeof explicitTitle === "string" && explicitTitle.trim()
+        ? { explicitTitle: explicitTitle.trim() }
+        : {}),
+    };
+  });
+  const resolvedLabels = resolvedInstances.length > 0
+    ? mergeResolvedLabels(resolvedInstances)
+    : discoveredInstances.length > 0
+      ? []
+    : applyVisibleFilter(
+        detail,
+        visibleOverrides,
+        applyOverrides(detail, extractSetterCalls(clxContent), baseLabels(detail))
+      );
 
   const gridColumns =
     detail.controls.find((c) => c.control_type === "grid")?.grid_columns ?? [];
@@ -446,8 +650,14 @@ export function resolveUdc(detail: UdcDetail, clxContent: string): ResolvedUdcIn
   const cascade =
     detail.controls.find((c) => c.cascade_config !== null)?.cascade_config ?? null;
 
-  const actions = detail.component.component_type === "file_upload"
-    ? resolveFileUploadActions(detail, clxContent) ?? resolveControlActions(detail)
+  const actions = isFileUpload
+    ? mergeVisibleActions(
+        resolvedInstances.length > 0
+          ? resolvedInstances.map((instance) => instance.actions ?? [])
+          : discoveredInstances.length > 0
+            ? []
+            : [resolveFileUploadInstanceActions(detail, clxContent)]
+      )
     : resolveControlActions(detail);
 
   return {
@@ -458,6 +668,7 @@ export function resolveUdc(detail: UdcDetail, clxContent: string): ResolvedUdcIn
     description: detail.component.description,
     sectionUsage: detail.component.section_usage,
     resolvedLabels,
+    instances: resolvedInstances,
     gridColumns: gridColumns ?? [],
     cascade,
     actions,

@@ -9,13 +9,18 @@ import type {
   OutputType,
 } from "@/types";
 
+/** Increment when parser/enrichment changes alter saved manual semantics. */
+const MANUAL_ANALYSIS_VERSION = "4";
+
 // ============================================================
 // 해시 · 식별자
 // ============================================================
 
 /** 파일 내용으로 source_hash 계산 (sha1) */
 export function computeSourceHash(content: string): string {
-  return createHash("sha1").update(content).digest("hex");
+  return createHash("sha1")
+    .update(`${MANUAL_ANALYSIS_VERSION}\0${content}`)
+    .digest("hex");
 }
 
 /** 경로에서 파일명만 추출 */

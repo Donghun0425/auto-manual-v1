@@ -7,7 +7,7 @@
  */
 import type { ConditionControlInfo, InfoGroupInfo } from '@/types';
 import { normalizeLabel } from '../utils.ts';
-import { isControlVisibleInLayout } from './visibility.ts';
+import { createLayoutVisibilityResolver } from './visibility.ts';
 
 /** 입력 컨트롤로 간주하는 타입 집합 */
 const INPUT_TYPES = new Set([
@@ -54,6 +54,7 @@ function extractFunctionBody(
  */
 export function parseInfoGroups(content: string): InfoGroupInfo[] {
   const result: InfoGroupInfo[] = [];
+  const layoutVisibility = createLayoutVisibilityResolver(content);
 
   // ── Step 1: CT_INFOTITLE{N} 타이틀 맵 구성 ───────────────────────────────
   // "01" → "공통코드(3레벨) 세부정보" 형태
@@ -74,9 +75,11 @@ export function parseInfoGroups(content: string): InfoGroupInfo[] {
   const groupRe = /var\s+(\w+)\s*=\s*(?:linker\.\w+\s*=\s*)?new\s+cpr\.controls\.Container\("(INFOGROUP(\d+))"\)/g;
   let gm: RegExpExecArray | null;
   while ((gm = groupRe.exec(content)) !== null) {
-    const varName = gm[1];
     const groupId = gm[2];
     const groupNum = gm[3];
+
+    // 숨김 레이아웃 영역의 INFOGROUP은 자손 항목까지 제외한다.
+    if (!layoutVisibility.isVisible(groupId)) continue;
 
     // cl-form-group 클래스 확인 (선언 이후 300자 이내)
     const afterDecl = content.slice(gm.index, gm.index + 300);
@@ -135,7 +138,7 @@ export function parseInfoGroups(content: string): InfoGroupInfo[] {
       if (labelText === controlId || labelText === dataCtrlId) continue;
 
       // 4) visible = false 로 명시된 컨트롤은 화면에 노출되지 않으므로 제외
-      if (!isControlVisibleInLayout(body, dataCtrlId)) continue;
+      if (!layoutVisibility.isVisible(dataCtrlId)) continue;
 
       const ctrlType = controlTypeMap.get(dataCtrlId) ?? 'InputBox';
       const isInput = INPUT_TYPES.has(ctrlType);

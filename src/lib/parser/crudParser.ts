@@ -5,7 +5,9 @@
  */
 import type { CrudInfo, CrudOperationLogic, CrudOperationType, ExtButtonInfo, ExtButtonLogic } from '@/types';
 import { normalizeFrameworkButtonLabel } from '../button-label.ts';
+import { normalizeMessage } from '../utils.ts';
 import { parseRequiredFields } from './validationParser.ts';
+import { createLayoutVisibilityResolver } from './visibility.ts';
 
 /** 저장 버튼 프레임워크 기본 가드 메시지 (PatisMenuTitleBar 내장 동작) */
 const DEFAULT_SAVE_GUARD_MSG = '저장할 내역이 없습니다.';
@@ -41,6 +43,7 @@ function classToLabel(className: string): string | null {
  * @returns PatisMenuTitleBar CRUD 정보
  */
 export function parseMenuTitleBarCrud(content: string): CrudInfo {
+  const layoutVisibility = createLayoutVisibilityResolver(content);
   const result: CrudInfo = {
     hasInquiry: false,
     hasNew: false,
@@ -48,6 +51,12 @@ export function parseMenuTitleBarCrud(content: string): CrudInfo {
     hasDelete: false,
     extButtons: [],
   };
+
+  const menuBarIds = [...content.matchAll(/new\s+udc\.common\.PatisMenuTitleBar\(\s*"([^"]+)"/g)]
+    .map((match) => match[1]);
+  if (menuBarIds.length > 0 && menuBarIds.every((id) => !layoutVisibility.isVisible(id))) {
+    return result;
+  }
 
   // 조회 함수 감지 - inqAction 본문에 실질 로직이 있어야 함 (전처리 Click만으로는 불인정)
   result.hasInquiry = /function\s+Form_inqAction\s*\(/.test(content)
@@ -149,7 +158,7 @@ function collectAlertsInBody(body: string): string[] {
   const re = /alert\s*\(\s*"([^"]+)"\s*\)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(body)) !== null) {
-    messages.push(m[1].replace(/\\n/g, ' ').trim());
+    messages.push(normalizeMessage(m[1]));
   }
   return messages;
 }
@@ -304,7 +313,7 @@ function collectConfirmsInBody(body: string): string[] {
   const re = /confirm\s*\(\s*"([^"]+)"\s*\)/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(body)) !== null) {
-    messages.push(m[1].replace(/\\n/g, ' ').trim());
+    messages.push(normalizeMessage(m[1]));
   }
   return messages;
 }
@@ -611,6 +620,7 @@ function analyzeBtnFunctionBody(body: string, btnName: string): string | null {
  * @returns PatisTitleBar CRUD 정보 배열
  */
 export function parseTitleBarCrud(content: string): CrudInfo[] {
+  const layoutVisibility = createLayoutVisibilityResolver(content);
   // CRUD 함수 또는 추가 버튼 함수가 하나도 없으면 스킵
   const hasAnyCrudFn = /function\s+TitleForm_(inq|new|save|del)(Action|Click)\s*\(/.test(content);
   const hasAnyExtFn  = /function\s+TitleForm_ext\d+Click\s*\(/.test(content);
@@ -634,6 +644,7 @@ export function parseTitleBarCrud(content: string): CrudInfo[] {
 
   interface BarInfo {
     varName: string | null;
+    controlId: string | null;
     title: string;
     saveVisible: boolean; saveHidden: boolean;
     newVisible:  boolean; newHidden:  boolean;
@@ -658,11 +669,12 @@ export function parseTitleBarCrud(content: string): CrudInfo[] {
     // 변수명 기반 전체 파일 title 검색 (800자 윈도우 제한 없음)
     const titleM = new RegExp(`\\b${varName}\\.title\\s*=\\s*"([^"]+)"`).exec(content);
     // 못 찾으면 생성자 직후 1200자 윈도우에서 폴백
-    const winTitle = titleM?.[1] ?? (() => {
+    const rawTitle = titleM?.[1] ?? (() => {
       const win = content.slice(tbMatch!.index, tbMatch!.index + 1200);
       return /\.title\s*=\s*"([^"]+)"/.exec(win)?.[1];
     })();
-    if (!winTitle) continue; // title이 없는 타이틀바는 스킵
+    if (!rawTitle) continue; // title이 없는 타이틀바는 스킵
+    const title = normalizeMessage(rawTitle);
 
     // 변수명 기반 전체 파일 visibility 검색
     const vt = (suffix: string) => new RegExp(`\\b${varName}\\.${suffix}`).test(content);
@@ -704,7 +716,8 @@ export function parseTitleBarCrud(content: string): CrudInfo[] {
 
     allBars.push({
       varName,
-      title:       winTitle,
+      controlId: barId,
+      title,
       saveVisible: vt('isSaveButtonVisible\\s*=\\s*true'),
       saveHidden:  vt('isSaveButtonVisible\\s*=\\s*false'),
       newVisible:  vt('isNewButtonVisible\\s*=\\s*true'),
@@ -725,7 +738,8 @@ export function parseTitleBarCrud(content: string): CrudInfo[] {
       if (!titleM) continue;
       allBars.push({
         varName:     null,
-        title:       titleM[1],
+        controlId:   /PatisTitleBar\(\s*"([^"]+)"/.exec(tbMatch[0])?.[1] ?? null,
+        title:       normalizeMessage(titleM[1]),
         saveVisible: /isSaveButtonVisible\s*=\s*true/.test(after),
         saveHidden:  /isSaveButtonVisible\s*=\s*false/.test(after),
         newVisible:  /isNewButtonVisible\s*=\s*true/.test(after),
@@ -756,9 +770,12 @@ export function parseTitleBarCrud(content: string): CrudInfo[] {
   }
 
   // ── Step 4.5: title 기준 중복 제거 (같은 title을 가진 bars → 첫 번째만 유지, extButtons는 merge) ──
+  const visibleBars = allBars.filter(
+    (bar) => !bar.controlId || layoutVisibility.isVisible(bar.controlId),
+  );
   const dedupedBars: typeof allBars = [];
   const seenTitles = new Set<string>();
-  for (const bar of allBars) {
+  for (const bar of visibleBars) {
     const key = bar.title.trim();
     if (seenTitles.has(key)) {
       // 동일 title이 이미 있으면 extButtons만 병합 (없는 index만 추가)
@@ -970,6 +987,7 @@ function extractExtButtonName(content: string, functionName: string): string | n
  */
 export function parseExtraButtons(content: string): ExtButtonInfo[] {
   const buttons: ExtButtonInfo[] = [];
+  const layoutVisibility = createLayoutVisibilityResolver(content);
   const seenControlId = new Set<string>();
   const seenFuncBase = new Set<string>();
 
@@ -994,6 +1012,7 @@ export function parseExtraButtons(content: string): ExtButtonInfo[] {
   while ((m = onclickRe.exec(content)) !== null) {
     const funcBase = m[1];
     if (seenFuncBase.has(funcBase)) continue;
+    if (!layoutVisibility.isVisible(funcBase)) continue;
     seenFuncBase.add(funcBase);
     seenControlId.add(funcBase);
     const body = extractFunctionBody(content, `${funcBase}_onclick`);
@@ -1043,8 +1062,8 @@ export function parseExtraButtons(content: string): ExtButtonInfo[] {
     // SEARCHGROUP 내 버튼은 조회조건 영역이므로 사용방법 섹션에서 제외
     if (controlId.startsWith('SEARCHGROUP')) continue;
 
-    // visible = false 로 명시된 버튼은 화면에 노출되지 않으므로 사용방법에서 제외
-    if (new RegExp(`${varName}\\.visible\\s*=\\s*false\\b`).test(afterDecl)) continue;
+    // 직접 visible=false 또는 숨김 행·열의 버튼은 사용방법에서 제외
+    if (!layoutVisibility.isVisible(controlId)) continue;
 
     // label/classLabel 모두 없는 경우: 단순 제외 (내부 ID 노출 방지)
     const btnLabel = label || classLabel;

@@ -54,3 +54,23 @@ test("동적 빈 헤더를 해석하고 하위 헤더 없는 병합 항목을 �
   assert.equal(periodColumns[0].controlType, "DateInput / MaskEditor");
   assert.equal(periodColumns[0].purpose, "입력");
 });
+
+test("cell.control이 없어도 columnName과 헤더가 있는 기본 셀을 표시 컬럼으로 분석한다", () => {
+  const content = readFileSync("sample/usm_3070507_u.clx.js", "utf8");
+
+  const grid = parseGrids(content).find((item) => item.gridId === "DG_GRID02");
+  assert.ok(grid);
+  assert.deepEqual(
+    grid.columns.map(({ columnName, headerText, controlType, purpose }) => ({
+      columnName,
+      headerText,
+      controlType,
+      purpose,
+    })),
+    [
+      { columnName: "SCHLA_YR", headerText: "연도", controlType: "-", purpose: "표시" },
+      { columnName: "SCHLA_SMSTR_SE", headerText: "학기", controlType: "-", purpose: "표시" },
+      { columnName: "SCHLA_NM", headerText: "장학명", controlType: "-", purpose: "표시" },
+    ],
+  );
+});

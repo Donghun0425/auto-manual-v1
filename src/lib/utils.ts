@@ -19,3 +19,22 @@ export function normalizeLabel(str: string): string {
     .replace(/\s+/g, ' ')
     .trim();
 }
+
+/**
+ * Normalizes a static JavaScript message literal for manual output.
+ * Unlike normalizeLabel, valid Unicode escapes are decoded and preserved.
+ */
+export function normalizeMessage(str: string): string {
+  return str
+    .replace(/\\u\{([0-9a-fA-F]{1,6})\}/g, (match, hex: string) => {
+      const codePoint = Number.parseInt(hex, 16);
+      return codePoint <= 0x10ffff ? String.fromCodePoint(codePoint) : match;
+    })
+    .replace(/\\u([0-9a-fA-F]{4})/g, (_match, hex: string) =>
+      String.fromCharCode(Number.parseInt(hex, 16))
+    )
+    .replace(/\\r\\n|\\r|\\n|\\t/g, " ")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}

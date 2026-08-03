@@ -11,6 +11,7 @@ import { applyUdcSynthesis } from "../src/lib/ai/synthesize-udc-items.ts";
 
 function fileUploadDetail() {
   const defaults = {
+    isMultiUpload: "false",
     selectButtonText: "파일선택",
     downloadButtonText: "다운로드",
     deleteButtonText: "파일삭제",
@@ -97,11 +98,25 @@ test("동일 UDC가 여러 개이면 하나라도 보이는 액션을 중복 없
   assert.deepEqual(actionLabels(content), ["파일선택", "다운로드", "파일삭제"]);
 });
 
+test("레이아웃에서 숨겨진 UDC 인스턴스는 보강 정보에서 제외한다", () => {
+  const content = `
+    var hidden = new udc.common.PatisFileUpload("HIDDEN");
+    hidden.setSelectButtonText("숨김 파일선택");
+    var visible = new udc.common.PatisFileUpload("VISIBLE");
+    visible.setSelectButtonText("노출 파일선택");
+  `;
+
+  const resolved = resolveUdc(fileUploadDetail(), content, (id) => id === "VISIBLE");
+  assert.deepEqual(resolved.instances.map((instance) => instance.instanceId), ["VISIBLE"]);
+  assert.equal(resolved.actions.some((action) => action.label === "숨김 파일선택"), false);
+  assert.equal(resolved.actions.some((action) => action.label === "노출 파일선택"), true);
+});
+
 test("파일 액션 메타데이터가 없으면 기존 컨트롤 라벨로 폴백한다", () => {
   const detail = fileUploadDetail();
   detail.properties = [];
 
-  assert.deepEqual(actionLabels("", detail), ["조회", "저장"]);
+  assert.deepEqual(actionLabels("", detail), []);
 });
 
 test("UDC 버튼이 다른 타이틀바에 반복 생성되면 실제 소유 섹션만 유지한다", () => {
@@ -315,7 +330,7 @@ test("정규화된 타이틀바 섹션이 없으면 단독 섹션을 보존한�
   assert.equal(removeDuplicateTitleBarUsageSections(usageText, parseResult), usageText);
 });
 
-test("파일 UDC에 전용 타이틀이 없으면 업무 목록명을 기능 제목으로 사용한다", () => {
+test("PatisFileUpload는 기존 타이틀바에 사용방법 기능을 추가하지 않는다", () => {
   const parseResult = {
     usage: {
       titleBars: [{
@@ -356,6 +371,8 @@ test("파일 UDC에 전용 타이틀이 없으면 업무 목록명을 기능 제
       title: bar.title,
       buttons: bar.extButtons.map((button) => button.name),
     })),
-    [{ title: "사업코드 리스트", buttons: ["파일선택"] }]
+    [
+      { title: "사업코드 리스트", buttons: [] },
+    ]
   );
 });

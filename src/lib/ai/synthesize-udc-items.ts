@@ -18,6 +18,22 @@ import type {
   CrudInfo,
 } from "@/types";
 
+function isExcludedFromUsage(udc: ResolvedUdcInfo): boolean {
+  return udc.shortName === "PatisFileUpload";
+}
+
+/** 사용방법 생성에 노출하지 않을 UDC를 제외한 문맥을 반환한다. */
+export function filterUsageUdcContext(
+  ctx: UdcEnrichmentContext
+): UdcEnrichmentContext {
+  const udcs = ctx.udcs.filter((udc) => !isExcludedFromUsage(udc));
+  return {
+    ...ctx,
+    udcs,
+    available: ctx.available && udcs.length > 0,
+  };
+}
+
 /**
  * UDC 보강 컨텍스트의 내부 콘텐츠를 파싱 결과에 합성 주입한다 (in-place).
  * 보강 불가(available=false) 시 아무것도 하지 않는다 (graceful degradation).
@@ -30,7 +46,10 @@ export function applyUdcSynthesis(
   if (!ctx.available || ctx.udcs.length === 0) return;
 
   for (const udc of ctx.udcs) {
-    const groupTitle = resolveUdcGroupTitle(clxContent, udc, parseResult);
+    // PatisFileUpload의 버튼은 사용방법 기능으로 생성하지 않는다.
+    if (isExcludedFromUsage(udc)) continue;
+
+    const groupTitle = resolveUdcGroupTitle(clxContent, udc);
 
     // 항목: info 형 UDC 의 내부 표시 필드
     if (udc.componentType === "info") {
@@ -117,8 +136,7 @@ function injectUdcButtons(
  */
 function resolveUdcGroupTitle(
   content: string,
-  udc: ResolvedUdcInfo,
-  parseResult: ClxParseResult
+  udc: ResolvedUdcInfo
 ): string {
   const instRe = new RegExp(`new\\s+udc\\.\\w+\\.${udc.shortName}\\s*\\(\\s*"([^"]+)"`);
   const m = instRe.exec(content);
@@ -129,16 +147,6 @@ function resolveUdcGroupTitle(
       const title = findInfoTitle(content, num);
       if (title) return title;
     }
-  }
-
-  // 파일 UDC에 전용 인포 타이틀이 없으면 기술적인 컴포넌트명보다
-  // 사용자가 실제로 작업 대상을 선택하는 화면 목록명을 우선한다.
-  if (udc.componentType === "file_upload") {
-    const gridTitle = parseResult.items.grids.find((grid) => grid.title)?.title;
-    if (gridTitle) return gridTitle;
-
-    const titleBarTitle = parseResult.usage.titleBars.find((bar) => bar.title)?.title;
-    if (titleBarTitle) return titleBarTitle;
   }
 
   return udc.displayName || udc.shortName;

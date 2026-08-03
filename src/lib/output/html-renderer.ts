@@ -5,6 +5,7 @@
  */
 import type { ClxParseResult, LayoutSection, ExtButtonInfo } from "@/types";
 import { prepareUsageSections } from "../ai/usage-section-order.ts";
+import { normalizeMessage } from "../utils.ts";
 
 export function renderHtml(
   parseResult: ClxParseResult,
@@ -169,7 +170,7 @@ function renderUsage(data: ClxParseResult, customTitle?: string): string {
     let inMsgBlock = false;
 
     for (const raw of orderedUsageText.split("\n")) {
-      const line = raw.trim();
+      const line = normalizeMessage(raw);
       if (!line) continue;
 
       // {B}기능명{/B} 패턴 → MSG 모드 해제
@@ -244,9 +245,13 @@ function renderUsage(data: ClxParseResult, customTitle?: string): string {
     .join(", ");
 
   // 함수명 기준 전처리 검증 메시지 분류
-  const inqVals = data.notes.validations.filter(v => /inq|inquiry|search/i.test(v.functionName));
-  const saveVals = data.notes.validations.filter(v => /save/i.test(v.functionName));
-  const delVals = data.notes.validations.filter(v => /del/i.test(v.functionName));
+  const normalizedValidations = data.notes.validations.map((v) => ({
+    ...v,
+    message: normalizeMessage(v.message),
+  }));
+  const inqVals = normalizedValidations.filter(v => /inq|inquiry|search/i.test(v.functionName));
+  const saveVals = normalizedValidations.filter(v => /save/i.test(v.functionName));
+  const delVals = normalizedValidations.filter(v => /del/i.test(v.functionName));
 
   if (menu.hasInquiry) {
     lines.push(`<span class="bold-tag">${escapeHtml(shortName)} 조회</span>`);
@@ -496,6 +501,7 @@ function renderNotes(data: ClxParseResult, customTitle?: string): string {
   // 조회/저장/삭제 전용은 사용방법 섹션에서 이미 표시 → 참고사항에서 제외
   const COMPLETION_RE = /^(?:처리|저장|삭제|등록|수정|복사|생성|변경|갱신|적용|실행)[^\n]*?(?:되었습니다|했습니다|하였습니다)[.!]?\s*$/;
   const otherVals = data.notes.validations
+    .map((v) => ({ ...v, message: normalizeMessage(v.message) }))
     .filter(v => !/inq|inquiry|search|save|del/i.test(v.functionName))
     .filter(v => !COMPLETION_RE.test(v.message.trim()));
 

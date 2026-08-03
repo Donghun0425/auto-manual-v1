@@ -23,7 +23,8 @@ import {
 } from "./prompts";
 import { findDictionaryByTerms, upsertDictionary } from "@/lib/supabase/queries/dictionary";
 import { enrichUdcContext, formatUdcHint } from "./enrich-udc-context";
-import { applyUdcSynthesis } from "./synthesize-udc-items";
+import { applyUdcSynthesis, filterUsageUdcContext } from "./synthesize-udc-items";
+import { applyUdcVisibilityToConditionGroups } from "./apply-udc-visibility";
 import {
   removeDuplicateTitleBarUsageSections,
   removeDuplicateUdcUsageSections,
@@ -76,18 +77,22 @@ export async function generateManualForFile(
   onProgress?.("파싱 중...");
   const parseResult = analyzeFile(filePath, content);
 
-  // 1-2. UDC 컨텍스트 보강 (옵션 ON 시) — 실패해도 빈 힌트로 degrade
+  // 1-2. 구조적 UDC 표시 여부는 항상 보정하고, 옵션은 AI 힌트·항목 합성만 제어한다.
   let udcHint = "";
-  if (useUdcContext) {
+  let usageUdcHint = "";
+  try {
     onProgress?.("UDC 분석자료 조회 중...");
-    try {
-      const udcCtx = await enrichUdcContext(parseResult, content);
-      udcHint = formatUdcHint(udcCtx);
+    const udcCtx = await enrichUdcContext(parseResult, content);
+    applyUdcVisibilityToConditionGroups(parseResult, udcCtx);
+    if (useUdcContext) {
       // UDC 내부 캡슐화 콘텐츠(필드/버튼)를 항목·사용방법에 합성 주입
       applyUdcSynthesis(parseResult, udcCtx, content);
-    } catch {
-      udcHint = "";
+      udcHint = formatUdcHint(udcCtx, parseResult);
+      usageUdcHint = formatUdcHint(filterUsageUdcContext(udcCtx), parseResult);
     }
+  } catch {
+    udcHint = "";
+    usageUdcHint = "";
   }
 
   // 2~5. AI enrichment (실패해도 파싱 결과는 유지)
@@ -110,7 +115,7 @@ export async function generateManualForFile(
 
     // 6. 사용방법 Step별 설명 생성
     onProgress?.("사용방법 생성 중...");
-    totalUsage = await enrichUsageText(parseResult, settings, totalUsage, udcHint);
+    totalUsage = await enrichUsageText(parseResult, settings, totalUsage, usageUdcHint);
 
     // 7. 참고사항 변환 생성
     onProgress?.("참고사항 변환 중...");

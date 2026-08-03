@@ -194,10 +194,22 @@ export interface UdcFunctionParam {
   position: number;
 }
 
+export interface UdcPropertyCondition {
+  property_name: string;
+  operator: "equals";
+  value: string | boolean;
+}
+
 /** 함수 → 컨트롤 매핑 (udc_function.target_controls) */
 export interface UdcFunctionTargetControl {
   control_id: string;
   attribute: string;
+  /** Exported function parameter that controls this target. */
+  parameter_name?: string;
+  /** Zero-based position of the controlling exported function parameter. */
+  parameter_position?: number;
+  /** Conditions under which this mapping applies. */
+  applies_when?: UdcPropertyCondition[];
 }
 
 /** udc_function 테이블 행 */
@@ -313,6 +325,25 @@ export interface LabelResolution {
   defaultLabel: string | null;
 }
 
+/** Final labels resolved for one concrete UDC instance in a CLX screen. */
+export type ResolvedVisibility = "visible" | "hidden" | "unknown";
+
+export interface ResolvedUdcAction {
+  controlId: string;
+  actionType: UdcActionType | null;
+  actionTarget: string | null;
+  label: string | null;
+  visibility?: ResolvedVisibility;
+  visibilityReasons?: string[];
+}
+
+export interface ResolvedUdcInstanceInfo {
+  instanceId: string;
+  resolvedLabels: LabelResolution[];
+  actions?: ResolvedUdcAction[];
+  explicitTitle?: string;
+}
+
 /** 단일 UDC 의 매뉴얼 보강 정보 */
 export interface ResolvedUdcInfo {
   shortName: string;
@@ -323,17 +354,14 @@ export interface ResolvedUdcInfo {
   sectionUsage: string[];
   /** 컨트롤별 최종 라벨 (기본값 + CLX 오버라이드 반영) */
   resolvedLabels: LabelResolution[];
+  /** Instance-specific labels used when the same UDC has different overrides. */
+  instances: ResolvedUdcInstanceInfo[];
   /** 그리드 컬럼 (component_type=grid) */
   gridColumns: UdcGridColumn[];
   /** 캐스케이드 관계 (component_type=cascading_combo) */
   cascade: UdcCascadeConfig | null;
   /** 버튼 동작 목록 */
-  actions: {
-    controlId: string;
-    actionType: UdcActionType | null;
-    actionTarget: string | null;
-    label: string | null;
-  }[];
+  actions: ResolvedUdcAction[];
 }
 
 /** CLX 파일에서 추출한 UDC Visible 속성 오버라이드 (속성 할당 + 메서드 호출) */

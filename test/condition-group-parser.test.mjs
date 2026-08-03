@@ -18,3 +18,11 @@ test("SEARCHGROUP UDC visible override and visible false child labels are handle
     ],
   );
 });
+
+test("UcoSrchComnt positional setObjectVisible hides the major condition", () => {
+  const content = readFileSync("sample/utc_3080207_u.clx.js", "utf8");
+  const group = parseConditionGroups(content).find((item) => item.groupId === "SEARCHGROUP01");
+
+  assert.ok(group);
+  assert.equal(group.controls.find((control) => control.controlId === "S_SDEPT_COMBO")?.labelText, "대학 / 학과");
+});

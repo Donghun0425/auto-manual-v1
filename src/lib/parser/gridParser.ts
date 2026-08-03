@@ -7,7 +7,7 @@
  */
 import type { GridInfo, GridColumnInfo } from '@/types';
 import { normalizeLabel } from '../utils.ts';
-import { isControlVisibleInLayout } from './visibility.ts';
+import { createLayoutVisibilityResolver } from './visibility.ts';
 
 /** 정규식 특수문자 이스케이프 */
 function escapeRegex(str: string): string {
@@ -310,7 +310,8 @@ function parseHeaderCells(headerSection: string, content: string): HeaderCellMap
 /**
  * detail 섹션에서 각 셀 정보 추출
  * - constraint의 colIndex / rowIndex 파싱
- * - cell.columnName 여부 관계없이 cell.control 있으면 포함
+ * - cell.control이 있는 셀은 포함
+ * - cell.control이 없어도 columnName과 표시 헤더가 있으면 기본 표시 셀로 포함
  * - 다음 셀의 "constraint" 키 직전까지를 본문으로 사용 (cross-cell 방지)
  */
 function parseDetailCells(
@@ -344,12 +345,15 @@ function parseDetailCells(
     const bodyEnd = nextConstraint > bodyStart ? nextConstraint : bodyStart + 2000;
     const body = detailSection.slice(bodyStart, Math.min(bodyEnd, bodyStart + 2000));
 
-    // cell.control 없으면 스킵
-    if (!/cell\.control\s*=/.test(body.slice(0, 500))) continue;
-
     // columnName
     const colNmM = /cell\.columnName\s*=\s*"([^"]+)"/.exec(body);
     const columnName = colNmM ? colNmM[1] : '';
+    const header = headerCells.get(colIndex);
+    const hasCellControl = /cell\.control\s*=/.test(body.slice(0, 500));
+
+    // 헤더 없는 기술·숨김 컬럼은 기존처럼 제외하되,
+    // 명시적인 헤더와 columnName이 있는 기본 그리드 셀은 표시 항목으로 인정한다.
+    if (!hasCellControl && (!columnName || !header?.text)) continue;
 
     // 而⑦듃濡????
     const ctM = /new cpr\.controls\.([\w.]+)\(/.exec(body);
@@ -373,7 +377,6 @@ function parseDetailCells(
       purpose = '입력';
     }
 
-    const header = headerCells.get(colIndex);
     const headerText = header?.text ?? columnName;
     if (!headerText && !columnName) continue;
 
@@ -478,6 +481,7 @@ function parseGridColumns(content: string, gridId: string): GridColumnInfo[] {
 export function parseGrids(content: string): GridInfo[] {
   const grids = new Map<string, GridInfo>();
   const titleMap = parseGridTitleMap(content);
+  const layoutVisibility = createLayoutVisibilityResolver(content);
 
   const initPattern = /PatisGrid\.initCreate\(app\.lookup\("([^"]+)"\)\)/g;
   let match: RegExpExecArray | null;
@@ -486,7 +490,7 @@ export function parseGrids(content: string): GridInfo[] {
     const gridId = match[1];
     if (!grids.has(gridId)) {
       // visible = false 로 명시된 그리드는 화면에 노출되지 않으므로 제외
-      if (!isControlVisibleInLayout(content, gridId)) continue;
+      if (!layoutVisibility.isVisible(gridId)) continue;
       grids.set(gridId, {
         gridId,
         title: titleMap.get(gridId) ?? '',

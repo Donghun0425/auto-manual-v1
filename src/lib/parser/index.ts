@@ -12,7 +12,7 @@ import { parsePopups } from "./popupParser";
 import { parseEmbApps } from "./embAppParser";
 import { parseInfoGroups } from "./infoGroupParser";
 import { UDC_REGISTRY } from "./udcRegistry";
-import { isControlVisibleInLayout } from "./visibility";
+import { createLayoutVisibilityResolver } from "./visibility";
 
 /**
  * UcoBtchList 컨트롤의 타이틀을 추출한다.
@@ -57,6 +57,7 @@ const UCO_BTCH_LIST_GRID_COLUMNS: GridInfo["columns"] = [
  * new udc.xxx.YYY("...") 패턴을 찾아 레지스트리에서 설명을 매칭.
  */
 function parseUsedUdcs(content: string): UsedUdcInfo[] {
+  const layoutVisibility = createLayoutVisibilityResolver(content);
   // controlId 까지 캡처하여 visible 속성을 판별한다.
   const re = /new\s+udc\.(\w+)\.(\w+)\s*\(\s*"([^"]+)"/g;
   // shortName 별로 표시 대상 인스턴스(visible=true)가 하나라도 있는지 추적
@@ -66,7 +67,7 @@ function parseUsedUdcs(content: string): UsedUdcInfo[] {
     const pkg = m[1];
     const shortName = m[2];
     const controlId = m[3];
-    const visible = isControlVisibleInLayout(content, controlId);
+    const visible = layoutVisibility.isVisible(controlId);
     const prev = collected.get(shortName);
     if (!prev) collected.set(shortName, { pkg, visible });
     else if (visible) prev.visible = true;
@@ -90,6 +91,7 @@ function parseUsedUdcs(content: string): UsedUdcInfo[] {
  * .clx.js 파일 내용을 분석하여 매뉴얼 생성에 필요한 정보를 추출
  */
 export function analyzeFile(filePath: string, content: string): ClxParseResult {
+  const layoutVisibility = createLayoutVisibilityResolver(content);
   const conditionGroups = parseConditionGroups(content);
   const grids = parseGrids(content);
   const workHints = parseWorkHints(content);
@@ -101,7 +103,7 @@ export function analyzeFile(filePath: string, content: string): ClxParseResult {
     const controlId = bm[1];
     if (grids.some(g => g.gridId === controlId)) continue;
     // visible = false 로 명시된 배치 리스트는 화면에 노출되지 않으므로 제외
-    if (!isControlVisibleInLayout(content, controlId)) continue;
+    if (!layoutVisibility.isVisible(controlId)) continue;
     const gridTitle = extractUcoBtchListTitle(content, controlId);
     grids.push({
       gridId: controlId,

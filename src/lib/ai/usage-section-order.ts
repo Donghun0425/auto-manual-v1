@@ -1,5 +1,6 @@
 import type { ClxParseResult } from "@/types";
 import { normalizeFrameworkButtonLabel } from "../button-label.ts";
+import { normalizeMessage } from "../utils.ts";
 
 interface UsageSection {
   title: string;
@@ -8,7 +9,9 @@ interface UsageSection {
 }
 
 function normalizeTitle(title: string): string {
-  const normalized = title.trim().replace(/\s*[-–]\s*/g, " - ").replace(/\s+/g, " ");
+  const normalized = normalizeMessage(title)
+    .replace(/\s*[-–]\s*/g, " - ")
+    .replace(/\s+/g, " ");
   const separatorIndex = normalized.lastIndexOf(" - ");
   if (separatorIndex < 0) return normalizeFrameworkButtonLabel(normalized);
 
@@ -95,6 +98,7 @@ export function getUsageSectionTitles(parseResult: ClxParseResult): string[] {
 
   for (const titleBar of parseResult.usage.titleBars) {
     const label = titleBar.title || "상세 정보";
+    if (titleBar.hasInquiry) titles.push(`${label} - 조회`);
     if (titleBar.hasNew) titles.push(`${label} - 신규`);
     if (titleBar.hasSave) titles.push(`${label} - 저장`);
     if (titleBar.hasDelete) titles.push(`${label} - 삭제`);
@@ -198,6 +202,10 @@ export function supplementMissingUsageSections(
 
   for (const titleBar of parseResult.usage.titleBars) {
     const label = titleBar.title || "상세 정보";
+    if (titleBar.hasInquiry) {
+      const title = `${label} - 조회`;
+      append(title, `{B}${title}{/B}\nStep1. ${label}에서 조회 조건을 확인한다.\nStep2. '${label}' 타이틀바의 '조회' 버튼을 클릭하고 결과를 확인한다.`, [`${label} 조회`]);
+    }
     if (titleBar.hasNew) {
       const title = `${label} - 신규`;
       append(title, `{B}${title}{/B}\nStep1. 그리드 타이틀바의 '신규' 버튼을 클릭한다.\nStep2. 필수 항목을 입력한다.`, [`${label} 신규`]);
@@ -227,5 +235,37 @@ export function prepareUsageSections(
   parseResult: ClxParseResult
 ): string {
   const canonicalText = canonicalizeUsageSections(usageText);
-  return sortUsageSections(supplementMissingUsageSections(canonicalText, parseResult), parseResult);
+  const validatedText = filterUnsupportedCrudUsageSections(canonicalText, parseResult);
+  return sortUsageSections(supplementMissingUsageSections(validatedText, parseResult), parseResult);
+}
+
+export function filterUnsupportedCrudUsageSections(
+  usageText: string,
+  parseResult: ClxParseResult
+): string {
+  const allowed = new Set(getUsageSectionTitles(parseResult).map(normalizeTitle));
+  const sections: { title?: string; lines: string[] }[] = [];
+  let current: { title?: string; lines: string[] } = { lines: [] };
+
+  for (const line of usageText.split("\n")) {
+    const heading = /^\s*\{B\}(.+?)\{\/B\}\s*$/.exec(line);
+    if (heading) {
+      if (current.lines.length > 0) sections.push(current);
+      current = { title: normalizeTitle(heading[1]), lines: [line] };
+    } else {
+      current.lines.push(line);
+    }
+  }
+  if (current.lines.length > 0) sections.push(current);
+
+  return sections
+    .filter((section) => {
+      if (!section.title) return true;
+      const match = /^(.+?) - (조회|신규|저장|삭제)$/.exec(section.title);
+      return !match || allowed.has(section.title);
+    })
+    .flatMap((section) => section.lines)
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }

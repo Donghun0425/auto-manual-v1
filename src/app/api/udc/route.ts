@@ -6,6 +6,7 @@ import {
   clearAllUdcs,
 } from "@/lib/supabase/queries/udc";
 import type { UdcComponentType, UdcCategory } from "@/types";
+import { invalidateUdcContextCache } from "@/lib/ai/enrich-udc-context";
 
 /** GET /api/udc — UDC 목록 조회 (검색·필터·페이지네이션) */
 export async function GET(request: NextRequest) {
@@ -47,9 +48,11 @@ export async function POST(request: NextRequest) {
   try {
     if (body.replaceAll) {
       await clearAllUdcs();
+      invalidateUdcContextCache();
     }
     const parsed = parseUdcFile(body.fileName ?? "udc.js", body.content);
     const summary = await upsertUdcComponents(parsed);
+    invalidateUdcContextCache(parsed.udcs.map((udc) => udc.component.short_name));
     return NextResponse.json(summary);
   } catch (err) {
     const message = err instanceof Error ? err.message : "UDC 업로드 실패";

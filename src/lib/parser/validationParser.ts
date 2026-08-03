@@ -4,6 +4,7 @@
  * - alert 메시지 추출
  */
 import type { RequiredFieldInfo, ValidationInfo } from "@/types";
+import { normalizeMessage } from "../utils.ts";
 
 /**
  * 필수값 정보(requiredColumn, requiredText) 추출
@@ -40,11 +41,11 @@ export function parseRequiredFields(content: string): RequiredFieldInfo[] {
  */
 export function parseValidations(content: string): ValidationInfo[] {
   const results: ValidationInfo[] = [];
-  const alertPattern = /alert\("([^"]+)"\)/g;
+  const alertPattern = /(?:app\.)?alert\s*\(\s*(["'])((?:\\.|(?!\1)[\s\S])*)\1\s*\)/g;
   let match: RegExpExecArray | null;
 
   while ((match = alertPattern.exec(content)) !== null) {
-    const message = match[1];
+    const message = normalizeMessage(match[2]);
     const functionName = findEnclosingFunction(content, match.index);
     results.push({ functionName, message });
   }
