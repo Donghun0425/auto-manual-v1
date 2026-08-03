@@ -3,12 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --hostname 0.0.0.0",
+    "dev": "next dev --hostname 0.0.0.0 --webpack --port 3000",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:udc": "node --experimental-strip-types --test test/udc-label-resolver.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "test:all": "node --experimental-strip-types --test test/button-label.test.mjs test/condition-group-parser.test.mjs test/grid-parser.test.mjs test/info-group-parser.test.mjs test/layout-visibility.test.mjs test/message-normalization.test.mjs test/patis-file-upload-analysis.test.mjs test/udc-label-resolver.test.mjs test/udc-multi-visibility.test.mjs test/usage-section-order.test.mjs",
+    "test:udc": "node --experimental-strip-types --test test/condition-group-parser.test.mjs test/udc-label-resolver.test.mjs test/udc-multi-visibility.test.mjs test/patis-file-upload-analysis.test.mjs",
     "test:button-label": "node --experimental-strip-types --test test/button-label.test.mjs",
+    "test:messages": "node --experimental-strip-types --test test/message-normalization.test.mjs",
     "test:usage-order": "node --experimental-strip-types --test test/usage-section-order.test.mjs"
   },
   "dependencies": {
